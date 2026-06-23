@@ -1,0 +1,379 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/data_provider.dart';
+import '../models/noise_event.dart';
+
+class LogsScreen extends StatefulWidget {
+  const LogsScreen({super.key});
+
+  @override
+  State<LogsScreen> createState() => _LogsScreenState();
+}
+
+class _LogsScreenState extends State<LogsScreen> {
+  final _fromCtrl = TextEditingController();
+  final _toCtrl = TextEditingController();
+  String _roomFilter = '';
+  String _severityFilter = '';
+  String _subjectFilter = '';
+  int _currentPage = 1;
+
+  @override
+  void dispose() {
+    _fromCtrl.dispose();
+    _toCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final data = context.watch<DataProvider>();
+
+    final roleFiltered = data.filterForRole(auth.role, auth.profile?['classroom_name']?.toString() ?? auth.profile?['room']?.toString());
+    final filtered = data.filterEvents(
+      room: _roomFilter,
+      severity: _severityFilter,
+      from: _fromCtrl.text,
+      to: _toCtrl.text,
+      subject: _subjectFilter,
+    ).where((e) => roleFiltered.contains(e)).toList();
+    final pagination = data.paginate(filtered, _currentPage);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Filters
+          _buildFilters(data),
+          const SizedBox(height: 12),
+
+          // Count
+          Text('${pagination.total} record(s) from noise_events · Page ${pagination.page} of ${pagination.totalPages}',
+            style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11)),
+
+          if (pagination.items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(40),
+              child: Center(child: Text('No records match your filters.',
+                style: TextStyle(color: Color(0xFF8b9cb3)))),
+            )
+          else
+            ...pagination.items.map((e) => _buildEventCard(e, auth.isAdmin)),
+
+          // Pagination
+          if (pagination.totalPages > 1)
+            _buildPagination(pagination),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilters(DataProvider data) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1a2332),
+        border: Border.all(color: const Color(0xFF2d3a4f)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _filterField('From', _fromCtrl)),
+              const SizedBox(width: 8),
+              Expanded(child: _filterField('To', _toCtrl)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _roomFilter.isEmpty ? null : _roomFilter,
+                  decoration: _inputDeco('Room / Device'),
+                  dropdownColor: const Color(0xFF243044),
+                  style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('All', style: TextStyle(color: Color(0xFFe8edf4)))),
+                    ...data.roomList.map((r) => DropdownMenuItem(value: r, child: Text(r))),
+                  ],
+                  onChanged: (v) => setState(() { _roomFilter = v ?? ''; _currentPage = 1; }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: _severityFilter.isEmpty ? null : _severityFilter,
+                  decoration: _inputDeco('Severity'),
+                  dropdownColor: const Color(0xFF243044),
+                  style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+                  items: const [
+                    DropdownMenuItem(value: null, child: Text('All', style: TextStyle(color: Color(0xFFe8edf4)))),
+                    DropdownMenuItem(value: 'green', child: Text('Green')),
+                    DropdownMenuItem(value: 'yellow', child: Text('Yellow')),
+                    DropdownMenuItem(value: 'red', child: Text('Red')),
+                  ],
+                  onChanged: (v) => setState(() { _severityFilter = v ?? ''; _currentPage = 1; }),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  decoration: _inputDeco('Subject / Teacher'),
+                  style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+                  onChanged: (v) => setState(() { _subjectFilter = v; _currentPage = 1; }),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _fromCtrl.clear();
+                    _toCtrl.clear();
+                    _roomFilter = '';
+                    _severityFilter = '';
+                    _subjectFilter = '';
+                    _currentPage = 1;
+                  });
+                },
+                child: const Text('Reset', style: TextStyle(color: Color(0xFF38bdf8), fontSize: 12)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterField(String label, TextEditingController ctrl) {
+    return TextField(
+      controller: ctrl,
+      decoration: _inputDeco(label),
+      style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+      onChanged: (_) => setState(() => _currentPage = 1),
+    );
+  }
+
+  InputDecoration _inputDeco(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11),
+      filled: true,
+      fillColor: const Color(0xFF243044),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFF2d3a4f)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFF2d3a4f)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFF38bdf8)),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+  }
+
+  Widget _buildEventCard(NoiseEvent e, bool isAdmin) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF243044),
+        border: Border.all(color: const Color(0xFF2d3a4f)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text('${e.date} ${e.time}',
+                style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13, fontWeight: FontWeight.w600))),
+              _statusPill(e.status),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _field('Room', e.room),
+              const SizedBox(width: 16),
+              _field('Noise', '${e.db} dB'),
+              const SizedBox(width: 16),
+              _field('Level', e.warningLevel.isNotEmpty ? e.warningLevel : '—'),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _field('Duration', e.durationSec > 0 ? '${e.durationSec}s' : '—'),
+              const SizedBox(width: 16),
+              _boolField('Buzzer', e.buzzer),
+              const SizedBox(width: 16),
+              _boolField('Audio', e.audioRecorded),
+              const Spacer(),
+              if (e.status == 'red' && e.audioRecorded && e.audioUrl != null)
+                TextButton.icon(
+                  onPressed: () => _showAudioModal(e),
+                  icon: const Icon(Icons.play_arrow, size: 16, color: Color(0xFF38bdf8)),
+                  label: const Text('Review Clip',
+                    style: TextStyle(color: Color(0xFF38bdf8), fontSize: 11)),
+                ),
+            ],
+          ),
+          if (e.subject != '—' || e.teacher != '—') ...[
+            const SizedBox(height: 4),
+            Text('${e.subject} · ${e.teacher}',
+              style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _field(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 9)),
+        Text(value, style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _boolField(String label, bool value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 9)),
+        Text(value ? 'Yes' : 'No',
+          style: TextStyle(
+            color: value ? const Color(0xFF22c55e) : const Color(0xFF8b9cb3),
+            fontSize: 12,
+          )),
+      ],
+    );
+  }
+
+  Widget _statusPill(String status) {
+    Color color;
+    switch (status) {
+      case 'green': color = const Color(0xFF22c55e); break;
+      case 'yellow': color = const Color(0xFFeab308); break;
+      default: color = const Color(0xFFef4444);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(status.toUpperCase(),
+        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _buildPagination(PaginationResult<NoiseEvent> pag) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Showing ${pag.startIndex}–${pag.endIndex} of ${pag.total}',
+            style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11)),
+          Row(
+            children: [
+              _pageBtn('← Prev', _currentPage > 1, () => setState(() => _currentPage--)),
+              const SizedBox(width: 8),
+              Text('Page ${pag.page} / ${pag.totalPages}',
+                style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 12)),
+              const SizedBox(width: 8),
+              _pageBtn('Next →', _currentPage < pag.totalPages, () => setState(() => _currentPage++)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pageBtn(String label, bool enabled, VoidCallback onTap) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFF2d3a4f)),
+            borderRadius: BorderRadius.circular(8),
+            color: enabled ? null : Colors.transparent,
+          ),
+          child: Text(label,
+            style: TextStyle(
+              color: enabled ? const Color(0xFFe8edf4) : const Color(0xFF8b9cb3).withValues(alpha: 0.4),
+              fontSize: 11,
+            )),
+        ),
+      ),
+    );
+  }
+
+  void _showAudioModal(NoiseEvent e) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1a2332),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Text('Review clip (read-only)',
+          style: TextStyle(color: Color(0xFFe8edf4), fontSize: 16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${e.room} · ${e.db} dB · ${e.date} ${e.time}',
+              style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 12)),
+            const SizedBox(height: 16),
+            if (e.audioUrl != null)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    // In a real app, we'd open the audio URL
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Audio URL: ${e.audioUrl}')),
+                    );
+                  },
+                  icon: const Icon(Icons.play_arrow, size: 20),
+                  label: const Text('Play Audio (5 sec)'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF38bdf8),
+                    foregroundColor: const Color(0xFF0f1419),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+            const Text('No download. Access logged.',
+              style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 10)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close', style: TextStyle(color: Color(0xFF38bdf8))),
+          ),
+        ],
+      ),
+    );
+  }
+}
