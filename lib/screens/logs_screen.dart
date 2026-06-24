@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../providers/auth_provider.dart';
 import '../providers/data_provider.dart';
 import '../models/noise_event.dart';
@@ -18,11 +19,14 @@ class _LogsScreenState extends State<LogsScreen> {
   String _severityFilter = '';
   String _subjectFilter = '';
   int _currentPage = 1;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  String? _currentlyPlayingId;
 
   @override
   void dispose() {
     _fromCtrl.dispose();
     _toCtrl.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -31,7 +35,8 @@ class _LogsScreenState extends State<LogsScreen> {
     final auth = context.watch<AuthProvider>();
     final data = context.watch<DataProvider>();
 
-    final roleFiltered = data.filterForRole(auth.role, auth.profile?['classroom_name']?.toString() ?? auth.profile?['room']?.toString());
+    final assignedDeviceId = auth.profile?['device_id']?.toString();
+    final roleFiltered = data.filterForRole(auth.role, assignedDeviceId);
     final filtered = data.filterEvents(
       room: _roomFilter,
       severity: _severityFilter,
@@ -224,9 +229,9 @@ class _LogsScreenState extends State<LogsScreen> {
               const Spacer(),
               if (e.status == 'red' && e.audioRecorded && e.audioUrl != null)
                 TextButton.icon(
-                  onPressed: () => _showAudioModal(e),
-                  icon: const Icon(Icons.play_arrow, size: 16, color: Color(0xFF38bdf8)),
-                  label: const Text('Review Clip',
+                  onPressed: () => _playAudio(e),
+                  icon: Icon(_currentlyPlayingId == e.id ? Icons.stop : Icons.play_arrow, size: 16, color: Color(0xFF38bdf8)),
+                  label: Text(_currentlyPlayingId == e.id ? 'Stop' : 'Play Clip',
                     style: TextStyle(color: Color(0xFF38bdf8), fontSize: 11)),
                 ),
             ],
@@ -329,51 +334,51 @@ class _LogsScreenState extends State<LogsScreen> {
     );
   }
 
-  void _showAudioModal(NoiseEvent e) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1a2332),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: const Text('Review clip (read-only)',
-          style: TextStyle(color: Color(0xFFe8edf4), fontSize: 16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${e.room} · ${e.db} dB · ${e.date} ${e.time}',
-              style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 12)),
-            const SizedBox(height: 16),
-            if (e.audioUrl != null)
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    // In a real app, we'd open the audio URL
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Audio URL: ${e.audioUrl}')),
-                    );
-                  },
-                  icon: const Icon(Icons.play_arrow, size: 20),
-                  label: const Text('Play Audio (5 sec)'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF38bdf8),
-                    foregroundColor: const Color(0xFF0f1419),
-                  ),
-                ),
-              ),
-            const SizedBox(height: 12),
-            const Text('No download. Access logged.',
-              style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 10)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close', style: TextStyle(color: Color(0xFF38bdf8))),
-          ),
-        ],
-      ),
-    );
+  Future<void> _playAudio(NoiseEvent e) async {
+    if (_currentlyPlayingId == e.id) {
+      await _audioPlayer.stop();
+      setState(() => _currentlyPlayingId = null);
+      return;
+    }
+
+    try {
+      await _audioPlayer.stop();
+      setState(() => _currentlyPlayingId = e.id);
+      
+      if (e.audioUrl != null && e.audioUrl!.isNotEmpty) {
+        await _audioPlayer.play(UrlSource(e.audioUrl!));
+        
+        // Listen for playback completion
+        _audioPlayer.onPlayerComplete.listen((_) {
+          if (mounted) {
+            setState(() => _currentlyPlayingId = null);
+          }
+        });
+        
+        // Listen for errors
+        _audioPlayer.onPlayerError.listen((event) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error playing audio: ${event.toString()}'), backgroundColor: Color(0xFFef4444)),
+            );
+            setState(() => _currentlyPlayingId = null);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error playing audio'), backgroundColor: Color(0xFFef4444)),
+        );
+        setState(() => _currentlyPlayingId = null);
+      }
+    }
+  }
+
+  @override
+  void deactivate() {
+    // Stop audio when leaving the screen
+    _audioPlayer.stop();
+    super.deactivate();
   }
 }

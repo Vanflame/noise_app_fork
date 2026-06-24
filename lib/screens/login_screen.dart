@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -260,6 +261,7 @@ class _LoginScreenState extends State<LoginScreen> {
       'http://192.168.0.100',
       'http://192.168.0.101',
       'http://10.0.2.100',
+      'http://192.168.4.1',
       'http://esp32.local',
       'http://noise-monitor.local',
     ];
@@ -269,13 +271,25 @@ class _LoginScreenState extends State<LoginScreen> {
         final uri = Uri.parse('$url/status');
         final res = await http.get(uri).timeout(const Duration(seconds: 1));
         if (res.statusCode == 200) {
-          final ip = uri.host;
-          setState(() => _detectedIp = ip);
-          await _storage.saveEspIp(ip);
+          // Try to extract the actual STA IP from the JSON response
+          String detectedIp = uri.host;
+          try {
+            final data = json.decode(res.body) as Map<String, dynamic>;
+            final staIp = (data['ip'] ?? '').toString();
+            final connected = data['connected'] == true;
+            if (staIp.isNotEmpty && connected) {
+              detectedIp = staIp;
+            }
+          } catch (_) {}
+          setState(() {
+            _detectedIp = detectedIp;
+            _isDetecting = false;
+          });
+          await _storage.saveEspIp(detectedIp);
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('ESP32 detected at $ip'),
+              content: Text('ESP32 detected at $detectedIp'),
               backgroundColor: const Color(0xFF22c55e),
             ),
           );

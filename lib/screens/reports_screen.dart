@@ -12,8 +12,8 @@ class ReportsScreen extends StatelessWidget {
     final data = context.watch<DataProvider>();
     final auth = context.watch<AuthProvider>();
 
-    final assignedRoom = auth.profile?['classroom_name']?.toString() ?? auth.profile?['room']?.toString();
-    final stats = data.getDashboardStats(auth.role, assignedRoom);
+    final assignedDeviceId = auth.profile?['device_id']?.toString();
+    final stats = data.getDashboardStats(auth.role, assignedDeviceId);
     final redByRoom = stats.chartByRoom;
     final trend = stats.chartByDateTime;
     final heatmap = data.buildHeatmap();

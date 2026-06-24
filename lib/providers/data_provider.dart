@@ -211,11 +211,11 @@ class DataProvider extends ChangeNotifier {
     return filtered;
   }
 
-  List<NoiseEvent> filterForRole(String role, String? assignedRoom) {
+  List<NoiseEvent> filterForRole(String role, String? assignedDeviceId) {
     if (role == 'teacher') {
       final schedules = _schedules;
-      if (schedules.isEmpty && assignedRoom != null) {
-        return _events.where((e) => e.room == assignedRoom).toList();
+      if (schedules.isEmpty && assignedDeviceId != null) {
+        return _events.where((e) => e.deviceId == assignedDeviceId).toList();
       }
       if (schedules.isNotEmpty) {
         return _events.where((e) => _matchesTeacherSchedule(e, schedules)).toList();
@@ -233,10 +233,8 @@ class DataProvider extends ChangeNotifier {
 
     for (final schedule in schedules) {
       final scheduleDay = schedule['day']?.toString() ?? '';
-      final scheduleRoom = schedule['room']?.toString() ?? '';
 
       if (eventDay != scheduleDay) continue;
-      if (scheduleRoom.isNotEmpty && event.room != scheduleRoom) continue;
 
       final startParts = (schedule['start_time']?.toString() ?? '00:00').split(':');
       final endParts = (schedule['end_time']?.toString() ?? '23:59').split(':');
@@ -288,8 +286,8 @@ class DataProvider extends ChangeNotifier {
   }
 
   // ─── Dashboard stats ───
-  DashboardStats getDashboardStats(String role, String? assignedRoom) {
-    final filtered = filterForRole(role, assignedRoom);
+  DashboardStats getDashboardStats(String role, String? assignedDeviceId) {
+    final filtered = filterForRole(role, assignedDeviceId);
 
     final today = DateTime.now().toIso8601String().substring(0, 10);
     final weekAgo = DateTime.now().subtract(const Duration(days: 7));
@@ -391,15 +389,15 @@ class DataProvider extends ChangeNotifier {
   }
 
   // ─── Audio clips helper ───
-  List<NoiseEvent> getRedAudioClips(String role, String? assignedRoom) {
+  List<NoiseEvent> getRedAudioClips(String role, String? assignedDeviceId) {
     var clips = _events.where((e) =>
         e.status == 'red' &&
         e.audioRecorded &&
         e.audioUrl != null &&
         (e.warningColor.toUpperCase() == 'RED'));
 
-    if (role == 'teacher' && assignedRoom != null) {
-      clips = clips.where((e) => e.room == assignedRoom);
+    if (role == 'teacher' && assignedDeviceId != null) {
+      clips = clips.where((e) => e.deviceId == assignedDeviceId);
     }
     return clips.toList();
   }

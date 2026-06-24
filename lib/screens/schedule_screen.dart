@@ -150,55 +150,185 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Future<void> _showEditDialog(BuildContext context, DataProvider data, String teacherId, {Map<String, dynamic>? schedule}) async {
     final isEdit = schedule != null;
-    final dayCtrl = TextEditingController(text: schedule?['day'] ?? 'Monday');
-    final startCtrl = TextEditingController(text: schedule?['start_time'] ?? '08:00');
-    final endCtrl = TextEditingController(text: schedule?['end_time'] ?? '09:00');
+    String selectedDay = schedule?['day'] ?? 'Monday';
+    TimeOfDay? startTimeOfDay = _parseTime(schedule?['start_time'] ?? '08:00');
+    TimeOfDay? endTimeOfDay = _parseTime(schedule?['end_time'] ?? '09:00');
     final subjectCtrl = TextEditingController(text: schedule?['subject'] ?? '');
     final roomCtrl = TextEditingController(text: schedule?['room'] ?? '');
 
+    String _formatTime(TimeOfDay? time) {
+      if (time == null) return 'Not set';
+      final hour = time.hour == 0 ? 12 : (time.hour > 12 ? time.hour - 12 : time.hour);
+      final period = time.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:${time.minute.toString().padLeft(2, '0')} $period';
+    }
+
+    String _timeTo24Hour(TimeOfDay? time) {
+      if (time == null) return '00:00';
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1a2332),
-        title: Text(isEdit ? 'Edit Schedule' : 'New Schedule',
-          style: const TextStyle(color: Color(0xFFe8edf4))),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _field('Day (e.g. Monday)', dayCtrl),
-              _field('Start time (HH:MM)', startCtrl),
-              _field('End time (HH:MM)', endCtrl),
-              _field('Subject (optional)', subjectCtrl),
-              _field('Room (optional)', roomCtrl),
-            ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1a2332),
+          title: Text(isEdit ? 'Edit Schedule' : 'New Schedule',
+            style: const TextStyle(color: Color(0xFFe8edf4))),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedDay,
+                  decoration: _inputDeco('Day'),
+                  dropdownColor: const Color(0xFF243044),
+                  style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+                  items: const [
+                    DropdownMenuItem(value: 'Monday', child: Text('Monday')),
+                    DropdownMenuItem(value: 'Tuesday', child: Text('Tuesday')),
+                    DropdownMenuItem(value: 'Wednesday', child: Text('Wednesday')),
+                    DropdownMenuItem(value: 'Thursday', child: Text('Thursday')),
+                    DropdownMenuItem(value: 'Friday', child: Text('Friday')),
+                    DropdownMenuItem(value: 'Saturday', child: Text('Saturday')),
+                    DropdownMenuItem(value: 'Sunday', child: Text('Sunday')),
+                  ],
+                  onChanged: (v) => setDialogState(() => selectedDay = v ?? 'Monday'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  title: const Text('Start Time', style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 12)),
+                  trailing: Text(_formatTime(startTimeOfDay), style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 14)),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: startTimeOfDay ?? const TimeOfDay(hour: 8, minute: 0),
+                      builder: (context, child) {
+                        return Theme(
+                          data: Theme.of(context).copyWith(
+                            colorScheme: const ColorScheme.dark(
+                              primary: Color(0xFF38bdf8),
+                              surface: Color(0xFF1a2332),
+                            ),
+                          ),
+                          child: child!,
+                        );
+                      },
+                    );
+                    if (picked != null) {
+                      setDialogState(() => startTimeOfDay = picked);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  title: const Text('End Time', style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 12)),
+                  trailing: Text(_formatTime(endTimeOfDay), style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 14)),
+                  onTap: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: endTimeOfDay ?? const TimeOfDay(hour: 9, minute: 0),
+                      builder: (context, child) {
+                        return Theme(
+                          data: Theme.of(context).copyWith(
+                            colorScheme: const ColorScheme.dark(
+                              primary: Color(0xFF38bdf8),
+                              surface: Color(0xFF1a2332),
+                            ),
+                          ),
+                          child: child!,
+                        );
+                      },
+                    );
+                    if (picked != null) {
+                      setDialogState(() => endTimeOfDay = picked);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                _field('Subject (optional)', subjectCtrl),
+                const SizedBox(height: 12),
+                _field('Room (optional)', roomCtrl),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                final start24 = _timeTo24Hour(startTimeOfDay);
+                final end24 = _timeTo24Hour(endTimeOfDay);
+                
+                // Check for conflicts
+                final hasConflict = await _checkTimeConflict(data, teacherId, selectedDay, start24, end24, isEdit ? (schedule?['id']?.toString() ?? '') : '');
+                if (hasConflict) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('This time slot conflicts with another schedule.'), backgroundColor: Color(0xFFef4444)),
+                    );
+                  }
+                  return;
+                }
+
+                final newSchedule = {
+                  'teacher_id': teacherId,
+                  'day': selectedDay,
+                  'start_time': start24,
+                  'end_time': end24,
+                  'subject': subjectCtrl.text.trim(),
+                  'room': roomCtrl.text.trim(),
+                };
+                if (isEdit && schedule['id'] != null) {
+                  await data.updateSchedule(schedule['id'].toString(), newSchedule);
+                } else {
+                  await data.addSchedule(newSchedule);
+                }
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38bdf8), foregroundColor: const Color(0xFF0f1419)),
+              child: Text(isEdit ? 'Save' : 'Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final newSchedule = {
-                'teacher_id': teacherId,
-                'day': dayCtrl.text.trim(),
-                'start_time': startCtrl.text.trim(),
-                'end_time': endCtrl.text.trim(),
-                'subject': subjectCtrl.text.trim(),
-                'room': roomCtrl.text.trim(),
-              };
-              if (isEdit && schedule['id'] != null) {
-                await data.updateSchedule(schedule['id'].toString(), newSchedule);
-              } else {
-                await data.addSchedule(newSchedule);
-              }
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38bdf8), foregroundColor: const Color(0xFF0f1419)),
-            child: Text(isEdit ? 'Save' : 'Create'),
-          ),
-        ],
       ),
     );
+  }
+
+  Future<bool> _checkTimeConflict(DataProvider data, String teacherId, String day, String startTime, String endTime, String? excludeId) async {
+    final allSchedules = data.getTeacherSchedules(teacherId);
+    final newStart = _timeToMinutes(startTime);
+    final newEnd = _timeToMinutes(endTime);
+
+    for (final s in allSchedules) {
+      if (excludeId != null && s['id']?.toString() == excludeId) continue;
+      if (s['day']?.toString() != day) continue;
+
+      final existingStart = _timeToMinutes(s['start_time']?.toString() ?? '00:00');
+      final existingEnd = _timeToMinutes(s['end_time']?.toString() ?? '23:59');
+
+      // Check if time ranges overlap
+      if (newStart < existingEnd && newEnd > existingStart) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  TimeOfDay? _parseTime(String time24h) {
+    final parts = time24h.split(':');
+    if (parts.length != 2) return null;
+    final hour = int.tryParse(parts[0]) ?? 0;
+    final minute = int.tryParse(parts[1]) ?? 0;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return TimeOfDay(hour: hour, minute: minute);
+  }
+
+  int _timeToMinutes(String time) {
+    final parts = time.split(':');
+    if (parts.length != 2) return 0;
+    final hours = int.tryParse(parts[0]) ?? 0;
+    final minutes = int.tryParse(parts[1]) ?? 0;
+    return hours * 60 + minutes;
   }
 
   Widget _field(String label, TextEditingController ctrl) {
@@ -215,6 +345,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2d3a4f))),
         ),
       ),
+    );
+  }
+
+  InputDecoration _inputDeco(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: Color(0xFF8b9cb3)),
+      filled: true,
+      fillColor: const Color(0xFF243044),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(6), borderSide: const BorderSide(color: Color(0xFF2d3a4f))),
     );
   }
 }

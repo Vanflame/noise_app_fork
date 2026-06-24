@@ -30,8 +30,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    final assignedRoom = auth.profile?['classroom_name']?.toString() ?? auth.profile?['room']?.toString();
-    final stats = data.getDashboardStats(auth.role, assignedRoom);
+    final assignedDeviceId = auth.profile?['device_id']?.toString();
+    final stats = data.getDashboardStats(auth.role, assignedDeviceId);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
