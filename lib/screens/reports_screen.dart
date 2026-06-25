@@ -5,9 +5,14 @@ import '../providers/auth_provider.dart';
 import '../providers/data_provider.dart';
 import '../services/pdf_report_service.dart';
 
-class ReportsScreen extends StatelessWidget {
+class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
 
+  @override
+  State<ReportsScreen> createState() => _ReportsScreenState();
+}
+
+class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
     final data = context.watch<DataProvider>();
@@ -36,7 +41,7 @@ class ReportsScreen extends StatelessWidget {
                     auth,
                     data,
                   );
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('PDF report generated successfully'),
@@ -45,7 +50,7 @@ class ReportsScreen extends StatelessWidget {
                     );
                   }
                 } catch (e) {
-                  if (mounted) {
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Error generating PDF: $e'),

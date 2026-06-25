@@ -30,6 +30,8 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
   // Local editable state
   final _ssidCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
+  List<Map<String, dynamic>> _wifiNetworks = [];
+  bool _isScanningWifi = false;
   final _yellowCtrl = TextEditingController();
   final _redCtrl = TextEditingController();
   final _majMinCtrl = TextEditingController();
@@ -81,7 +83,11 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     if (saved.isNotEmpty) candidates.add(saved);
 
     // 2) Try mDNS hostnames commonly used by ESP32
-    candidates.addAll(['http://esp32.local', 'http://noise-monitor.local', 'http://classroom-noise.local']);
+    candidates.addAll([
+      'http://esp32.local',
+      'http://noise-monitor.local',
+      'http://classroom-noise.local',
+    ]);
 
     // 3) Only scan common LAN IPs if no saved IP was found
     if (saved.isEmpty) {
@@ -125,7 +131,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
             if (isConnected) {
               await _fetchStatus();
             } else {
-              _showSnack('ESP32 found at $detectedIp (not connected to Wi-Fi)', false);
+              _showSnack(
+                'ESP32 found at $detectedIp (not connected to Wi-Fi)',
+                false,
+              );
             }
           }
           return;
@@ -142,29 +151,37 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
 
   Future<void> _scanForEsp() async {
     setState(() => _isLoading = true);
-    
+
     // Build candidate list using multiple strategies
     final candidates = <String>[];
-    
+
     // 1) Try the saved IP first (fastest path)
     final savedIp = _espIpCtrl.text.trim();
     if (savedIp.isNotEmpty) {
       candidates.add('http://$savedIp');
     }
-    
+
     // 2) Always check AP mode IP
     candidates.add('http://192.168.4.1');
-    
+
     // 3) mDNS hostnames
     candidates.addAll([
       'http://esp32.local',
       'http://noise-monitor.local',
       'http://classroom-noise.local',
     ]);
-    
+
     // 4) Scan all 254 IPs on common subnets in parallel
     //    Using very short timeout (100ms) so the whole scan completes in ~100ms
-    for (final base in ['192.168.1', '192.168.0', '10.0.2', '192.168.100', '172.16.0', '192.168.10', '192.168.2']) {
+    for (final base in [
+      '192.168.1',
+      '192.168.0',
+      '10.0.2',
+      '192.168.100',
+      '172.16.0',
+      '192.168.10',
+      '192.168.2',
+    ]) {
       for (int i = 1; i <= 254; i++) {
         candidates.add('http://$base.$i');
       }
@@ -178,33 +195,39 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     final futures = candidates.map((url) async {
       try {
         final uri = Uri.parse('$url/status');
-        final res = await http.get(uri).timeout(const Duration(milliseconds: 100));
+        final res = await http
+            .get(uri)
+            .timeout(const Duration(milliseconds: 100));
         if (res.statusCode == 200) {
           final detectedIp = uri.host;
           final data = json.decode(res.body) as Map<String, dynamic>;
           final jsonIp = (data['ip'] ?? '').toString();
           final connected = data['connected'] == true;
-          return {'ip': jsonIp, 'detectedIp': detectedIp, 'connected': connected};
+          return {
+            'ip': jsonIp,
+            'detectedIp': detectedIp,
+            'connected': connected,
+          };
         }
       } catch (_) {}
       return null;
     });
-    
+
     final results = await Future.wait(futures);
-    
+
     for (final result in results) {
       if (result != null) {
         final jsonIp = result['ip'] as String;
         final detectedIp = result['detectedIp'] as String;
         final connected = result['connected'] as bool;
-        
+
         if (jsonIp.isNotEmpty && connected) {
           staIp = jsonIp;
           isConnected = true;
         } else if (jsonIp.isNotEmpty && staIp == null) {
           staIp = jsonIp;
         }
-        
+
         if (detectedIp == '192.168.4.1' && apIp == null) {
           apIp = detectedIp;
         }
@@ -241,13 +264,21 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
           children: [
             Icon(
               bestIp != null ? Icons.check_circle : Icons.error_outline,
-              color: bestIp != null ? (isConnected ? const Color(0xFF22c55e) : const Color(0xFFeab308)) : const Color(0xFFef4444),
+              color: bestIp != null
+                  ? (isConnected
+                        ? const Color(0xFF22c55e)
+                        : const Color(0xFFeab308))
+                  : const Color(0xFFef4444),
               size: 28,
             ),
             const SizedBox(width: 12),
             Text(
               bestIp != null ? 'ESP32 Found' : 'Not Found',
-              style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 18, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: Color(0xFFe8edf4),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -256,28 +287,36 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (staIp != null && isConnected) ...[
-              const Text('ESP32 is connected to your Wi-Fi network.',
-                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13)),
+              const Text(
+                'ESP32 is connected to your Wi-Fi network.',
+                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13),
+              ),
               const SizedBox(height: 12),
               _scanResultRow('STA IP (Wi-Fi)', staIp!, const Color(0xFF22c55e)),
             ] else if (staIp != null) ...[
-              const Text('ESP32 found via AP mode. It has a network IP but may not be connected.',
-                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13)),
+              const Text(
+                'ESP32 found via AP mode. It has a network IP but may not be connected.',
+                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13),
+              ),
               const SizedBox(height: 12),
               _scanResultRow('Device IP', staIp!, const Color(0xFFeab308)),
             ] else if (apIp != null) ...[
-              const Text('ESP32 found in AP mode (192.168.4.1).\n'
-                  'Use ESP32 Device Setup to connect it to Wi-Fi.',
-                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13)),
+              const Text(
+                'ESP32 found in AP mode (192.168.4.1).\n'
+                'Use ESP32 Device Setup to connect it to Wi-Fi.',
+                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13),
+              ),
               const SizedBox(height: 12),
               _scanResultRow('AP IP (Setup)', apIp!, const Color(0xFFeab308)),
             ] else ...[
-              const Text('No ESP32 device was found on your network.\n\n'
-                  'Make sure:\n'
-                  '• The ESP32 is powered on\n'
-                  '• Your phone is on the same network\n'
-                  '• Or connect to the ESP32 AP (Classroom-Noise-Setup) first',
-                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13)),
+              const Text(
+                'No ESP32 device was found on your network.\n\n'
+                'Make sure:\n'
+                '• The ESP32 is powered on\n'
+                '• Your phone is on the same network\n'
+                '• Or connect to the ESP32 AP (Classroom-Noise-Setup) first',
+                style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 13),
+              ),
             ],
           ],
         ),
@@ -298,7 +337,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
             onPressed: () {
               Navigator.of(ctx).pop();
             },
-            child: const Text('Close', style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 14)),
+            child: const Text(
+              'Close',
+              style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 14),
+            ),
           ),
         ],
       ),
@@ -319,16 +361,20 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11)),
+              Text(
+                label,
+                style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 11),
+              ),
               const SizedBox(height: 4),
-              Text(ip,
+              Text(
+                ip,
                 style: TextStyle(
                   color: ipColor,
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'monospace',
-                )),
+                ),
+              ),
             ],
           ),
           const Spacer(),
@@ -372,7 +418,9 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     if (_ip.isEmpty) return;
     setState(() => _error = null);
     try {
-      final res = await http.get(Uri.parse('http://$_ip/status')).timeout(const Duration(seconds: 5));
+      final res = await http
+          .get(Uri.parse('http://$_ip/status'))
+          .timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
         final data = json.decode(res.body) as Map<String, dynamic>;
         setState(() {
@@ -414,7 +462,9 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     String? staIp;
     // First try the dedicated /sta_ip endpoint
     try {
-      final staRes = await http.get(Uri.parse('http://$_ip/sta_ip')).timeout(const Duration(seconds: 2));
+      final staRes = await http
+          .get(Uri.parse('http://$_ip/sta_ip'))
+          .timeout(const Duration(seconds: 2));
       if (staRes.statusCode == 200) {
         staIp = staRes.body.trim();
       }
@@ -422,7 +472,9 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     // Fallback: parse the STA IP from /status JSON
     if (staIp == null || staIp.isEmpty) {
       try {
-        final statusRes = await http.get(Uri.parse('http://$_ip/status')).timeout(const Duration(seconds: 2));
+        final statusRes = await http
+            .get(Uri.parse('http://$_ip/status'))
+            .timeout(const Duration(seconds: 2));
         if (statusRes.statusCode == 200) {
           final data = json.decode(statusRes.body) as Map<String, dynamic>;
           final ip = (data['ip'] ?? '').toString();
@@ -453,22 +505,37 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
   void _startMonitorPolling() {
     _monitorTimer?.cancel();
     _pollMonitor();
-    _monitorTimer = Timer.periodic(const Duration(seconds: 3), (_) => _pollMonitor());
+    _monitorTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _pollMonitor(),
+    );
   }
 
   Future<void> _pollMonitor() async {
     if (!_monitorConnected) return;
     try {
       // Use the /monitor endpoint which returns the live monitor log
-      final res = await http.get(Uri.parse('http://$_ip/monitor')).timeout(const Duration(seconds: 2));
+      final res = await http
+          .get(Uri.parse('http://$_ip/monitor'))
+          .timeout(const Duration(seconds: 2));
       if (res.statusCode == 200 && res.body != _monitorText) {
-        setState(() => _monitorText = res.body.length > 2000 ? res.body.substring(0, 2000) : res.body);
+        setState(
+          () => _monitorText = res.body.length > 2000
+              ? res.body.substring(0, 2000)
+              : res.body,
+        );
       }
     } catch (_) {}
     try {
-      final res = await http.get(Uri.parse('http://$_ip/events')).timeout(const Duration(seconds: 2));
+      final res = await http
+          .get(Uri.parse('http://$_ip/events'))
+          .timeout(const Duration(seconds: 2));
       if (res.statusCode == 200 && res.body != _eventsText) {
-        setState(() => _eventsText = res.body.length > 500 ? res.body.substring(0, 500) : res.body);
+        setState(
+          () => _eventsText = res.body.length > 500
+              ? res.body.substring(0, 500)
+              : res.body,
+        );
       }
     } catch (_) {}
   }
@@ -477,9 +544,57 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     final uri = Uri.parse('http://$_ip/$path').replace(queryParameters: params);
     final res = await http.get(uri).timeout(const Duration(seconds: 5));
     // Accept 200, 204 (OK/No Content) or 303 (redirect, used by /save endpoint)
-    if (res.statusCode != 200 && res.statusCode != 204 && res.statusCode != 303) {
+    if (res.statusCode != 200 &&
+        res.statusCode != 204 &&
+        res.statusCode != 303) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
+  }
+
+  Future<void> _scanWifi() async {
+    setState(() {
+      _isScanningWifi = true;
+      _wifiNetworks = [];
+    });
+
+    try {
+      // Try to reach ESP32 at current IP
+      final ip = _espIpCtrl.text.trim();
+      if (ip.isEmpty) {
+        _showSnack('No ESP32 IP configured', false);
+        setState(() => _isScanningWifi = false);
+        return;
+      }
+
+      final espUrl = 'http://$ip';
+      final res = await http
+          .get(Uri.parse('$espUrl/scan'))
+          .timeout(const Duration(seconds: 5));
+      if (res.statusCode == 200) {
+        final List<dynamic> networks = json.decode(res.body);
+        setState(() {
+          _wifiNetworks = networks
+              .map((n) => Map<String, dynamic>.from(n))
+              .toList();
+          _isScanningWifi = false;
+        });
+        if (_wifiNetworks.isEmpty) {
+          _showSnack('No networks found', false);
+        } else {
+          _showSnack('Found ${_wifiNetworks.length} networks', true);
+        }
+        return;
+      }
+    } catch (e) {
+      // ESP32 not reachable or doesn't support scan
+    }
+
+    // Fallback: show manual entry only
+    setState(() {
+      _wifiNetworks = [];
+      _isScanningWifi = false;
+    });
+    _showSnack('Cannot scan networks. Enter SSID manually.', false);
   }
 
   Future<void> _forgetNetwork() async {
@@ -496,19 +611,27 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
   }
 
   Future<void> _saveWifi() async {
-    await _send('save', {'ssid': _ssidCtrl.text.trim(), 'password': _passCtrl.text});
+    await _send('save', {
+      'ssid': _ssidCtrl.text.trim(),
+      'password': _passCtrl.text,
+    });
     _showSnack('Wi-Fi saved', true);
   }
 
   Future<void> _saveThresholds() async {
-    await _send('setThresholds', {'yellow': _yellowCtrl.text.trim(), 'red': _redCtrl.text.trim()});
+    await _send('setThresholds', {
+      'yellow': _yellowCtrl.text.trim(),
+      'red': _redCtrl.text.trim(),
+    });
     _showSnack('Thresholds saved', true);
   }
 
   Future<void> _saveAlertTimers() async {
     await _send('setAlertConfig', {
-      'maj_min': _majMinCtrl.text.trim(), 'sil_sec': _silSecCtrl.text.trim(),
-      'first_sec': _firstSecCtrl.text.trim(), 'second_sec': _secondSecCtrl.text.trim(),
+      'maj_min': _majMinCtrl.text.trim(),
+      'sil_sec': _silSecCtrl.text.trim(),
+      'first_sec': _firstSecCtrl.text.trim(),
+      'second_sec': _secondSecCtrl.text.trim(),
       'major_sec': _majorSecCtrl.text.trim(),
     });
     _showSnack('Alert timers saved', true);
@@ -517,7 +640,9 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
   Future<void> _saveToggles() async {
     try {
       await _send('setSpeaker', {'enabled': _speakerEnabled ? '1' : '0'});
-      await _send('setNoiseLedsEnabled', {'enabled': _noiseLedsEnabled ? '1' : '0'});
+      await _send('setNoiseLedsEnabled', {
+        'enabled': _noiseLedsEnabled ? '1' : '0',
+      });
       await _send('setMicEnabled', {'enabled': _micEnabled ? '1' : '0'});
       await _send('setSerialLogging', {'enabled': _serialLogging ? '1' : '0'});
       _showSnack('Toggles saved', true);
@@ -562,7 +687,9 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${isSuccess ? "✓" : "•"} $msg'),
-        backgroundColor: isSuccess ? const Color(0xFF22c55e) : const Color(0xFFef4444),
+        backgroundColor: isSuccess
+            ? const Color(0xFF22c55e)
+            : const Color(0xFFef4444),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -575,7 +702,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1a2332),
         elevation: 0,
-        title: const Text('Device Configuration', style: TextStyle(color: Color(0xFFe8edf4))),
+        title: const Text(
+          'Device Configuration',
+          style: TextStyle(color: Color(0xFFe8edf4)),
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -590,11 +720,113 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                 _row(['SSID', _ssidCtrl], _saveWifi),
                 _row(['Password', _passCtrl], _saveWifi),
                 const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: _isScanningWifi ? null : _scanWifi,
+                  icon: _isScanningWifi
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF38bdf8),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.wifi,
+                          color: Color(0xFF38bdf8),
+                          size: 18,
+                        ),
+                  label: Text(
+                    _isScanningWifi ? 'Scanning...' : 'Scan Wi-Fi Networks',
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1a2332),
+                    foregroundColor: const Color(0xFFe8edf4),
+                  ),
+                ),
+                if (_wifiNetworks.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Available Networks:',
+                    style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  ..._wifiNetworks.map((network) {
+                    final ssid = network['ssid'] ?? 'Unknown';
+                    final rssi = network['rssi'] ?? 0;
+                    final signalStrength = rssi > -50
+                        ? 'Strong'
+                        : (rssi > -70 ? 'Medium' : 'Weak');
+                    final signalColor = rssi > -50
+                        ? const Color(0xFF22c55e)
+                        : (rssi > -70
+                              ? const Color(0xFFeab308)
+                              : const Color(0xFFef4444));
+                    return InkWell(
+                      onTap: () {
+                        setState(() => _ssidCtrl.text = ssid);
+                        _showSnack('Selected: $ssid', true);
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF243044),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFF2d3a4f)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.wifi,
+                              color: Color(0xFF38bdf8),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                ssid,
+                                style: const TextStyle(
+                                  color: Color(0xFFe8edf4),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: signalColor.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                signalStrength,
+                                style: TextStyle(
+                                  color: signalColor,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+                const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _forgetNetwork,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFef4444), foregroundColor: const Color(0xFF0f1419)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFef4444),
+                      foregroundColor: const Color(0xFF0f1419),
+                    ),
                     child: const Text('Forget Network (Disconnect Wi-Fi)'),
                   ),
                 ),
@@ -614,16 +846,35 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               ]),
               const SizedBox(height: 12),
               _section('Toggles', [
-                _toggleRow('Speaker', _speakerEnabled, (v) => setState(() => _speakerEnabled = v)),
-                _toggleRow('Noise LEDs', _noiseLedsEnabled, (v) => setState(() => _noiseLedsEnabled = v)),
-                _toggleRow('Microphone', _micEnabled, (v) => setState(() => _micEnabled = v)),
-                _toggleRow('Serial Logging', _serialLogging, (v) => setState(() => _serialLogging = v)),
+                _toggleRow(
+                  'Speaker',
+                  _speakerEnabled,
+                  (v) => setState(() => _speakerEnabled = v),
+                ),
+                _toggleRow(
+                  'Noise LEDs',
+                  _noiseLedsEnabled,
+                  (v) => setState(() => _noiseLedsEnabled = v),
+                ),
+                _toggleRow(
+                  'Microphone',
+                  _micEnabled,
+                  (v) => setState(() => _micEnabled = v),
+                ),
+                _toggleRow(
+                  'Serial Logging',
+                  _serialLogging,
+                  (v) => setState(() => _serialLogging = v),
+                ),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: _saveToggles,
-                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38bdf8), foregroundColor: const Color(0xFF0f1419)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF38bdf8),
+                      foregroundColor: const Color(0xFF0f1419),
+                    ),
                     child: const Text('Save Toggles'),
                   ),
                 ),
@@ -632,7 +883,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               _section('Volume', [
                 Row(
                   children: [
-                    const Text('MP3 Volume', style: TextStyle(color: Color(0xFFe8edf4), fontSize: 13)),
+                    const Text(
+                      'MP3 Volume',
+                      style: TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Slider(
@@ -648,25 +902,80 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                     ),
                     SizedBox(
                       width: 28,
-                      child: Text('${_volume.round()}', style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13)),
+                      child: Text(
+                        '${_volume.round()}',
+                        style: const TextStyle(
+                          color: Color(0xFFe8edf4),
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                     IconButton(
                       onPressed: _saveVolume,
-                      icon: const Icon(Icons.save, color: Color(0xFF38bdf8), size: 18),
+                      icon: const Icon(
+                        Icons.save,
+                        color: Color(0xFF38bdf8),
+                        size: 18,
+                      ),
                       tooltip: 'Save Volume',
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                Row(children: [
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _playMp3('playTest001'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1a2332), foregroundColor: const Color(0xFFe8edf4), padding: EdgeInsets.zero), child: const Text('01'))),
-                  const SizedBox(width: 6),
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _playMp3('playTest002'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1a2332), foregroundColor: const Color(0xFFe8edf4), padding: EdgeInsets.zero), child: const Text('02'))),
-                  const SizedBox(width: 6),
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _playMp3('playTest003'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1a2332), foregroundColor: const Color(0xFFe8edf4), padding: EdgeInsets.zero), child: const Text('03'))),
-                ]),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _playMp3('playTest001'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1a2332),
+                          foregroundColor: const Color(0xFFe8edf4),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('01'),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _playMp3('playTest002'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1a2332),
+                          foregroundColor: const Color(0xFFe8edf4),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('02'),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _playMp3('playTest003'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1a2332),
+                          foregroundColor: const Color(0xFFe8edf4),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('03'),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
-                SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _stopMp3, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFef4444), foregroundColor: const Color(0xFF0f1419)), child: const Text('Stop MP3'))),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _stopMp3,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFef4444),
+                      foregroundColor: const Color(0xFF0f1419),
+                    ),
+                    child: const Text('Stop MP3'),
+                  ),
+                ),
               ]),
               const SizedBox(height: 12),
               _section('DB Log Config', [
@@ -677,59 +986,122 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               ]),
               const SizedBox(height: 12),
               _section('LED Test', [
-                Row(children: [
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _testLed('green'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF22c55e), foregroundColor: const Color(0xFF0f1419), padding: EdgeInsets.zero), child: const Text('Green'))),
-                  const SizedBox(width: 6),
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _testLed('yellow'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFeab308), foregroundColor: const Color(0xFF0f1419), padding: EdgeInsets.zero), child: const Text('Yellow'))),
-                  const SizedBox(width: 6),
-                  Expanded(flex: 1, child: ElevatedButton(onPressed: () => _testLed('red'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFef4444), foregroundColor: const Color(0xFF0f1419), padding: EdgeInsets.zero), child: const Text('Red'))),
-                ]),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _testLed('green'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF22c55e),
+                          foregroundColor: const Color(0xFF0f1419),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('Green'),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _testLed('yellow'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFeab308),
+                          foregroundColor: const Color(0xFF0f1419),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('Yellow'),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 1,
+                      child: ElevatedButton(
+                        onPressed: () => _testLed('red'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFef4444),
+                          foregroundColor: const Color(0xFF0f1419),
+                          padding: EdgeInsets.zero,
+                        ),
+                        child: const Text('Red'),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
-                SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => _testLed('off'), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1a2332), foregroundColor: const Color(0xFFe8edf4)), child: const Text('LED Off'))),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => _testLed('off'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1a2332),
+                      foregroundColor: const Color(0xFFe8edf4),
+                    ),
+                    child: const Text('LED Off'),
+                  ),
+                ),
               ]),
               if (widget.isAdmin) ...[
                 const SizedBox(height: 12),
-                _collapsibleSection('Live Monitor', _monitorExpanded, () {
-                  setState(() => _monitorExpanded = !_monitorExpanded);
-                }, [
-                  Container(
-                    width: double.infinity,
-                    height: 160,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF060a13),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF2d3a4f)),
-                    ),
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        _monitorText,
-                        style: const TextStyle(color: Color(0xFF86efac), fontSize: 11, fontFamily: 'monospace'),
+                _collapsibleSection(
+                  'Live Monitor',
+                  _monitorExpanded,
+                  () {
+                    setState(() => _monitorExpanded = !_monitorExpanded);
+                  },
+                  [
+                    Container(
+                      width: double.infinity,
+                      height: 160,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF060a13),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF2d3a4f)),
+                      ),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          _monitorText,
+                          style: const TextStyle(
+                            color: Color(0xFF86efac),
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
                 const SizedBox(height: 12),
-                _collapsibleSection('Event Log', _eventsExpanded, () {
-                  setState(() => _eventsExpanded = !_eventsExpanded);
-                }, [
-                  Container(
-                    width: double.infinity,
-                    height: 160,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF060a13),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF2d3a4f)),
-                    ),
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        _eventsText,
-                        style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 11, fontFamily: 'monospace'),
+                _collapsibleSection(
+                  'Event Log',
+                  _eventsExpanded,
+                  () {
+                    setState(() => _eventsExpanded = !_eventsExpanded);
+                  },
+                  [
+                    Container(
+                      width: double.infinity,
+                      height: 160,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF060a13),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF2d3a4f)),
+                      ),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          _eventsText,
+                          style: const TextStyle(
+                            color: Color(0xFFe8edf4),
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
               ],
             ],
           ],
@@ -756,28 +1128,49 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                   controller: _espIpCtrl,
                   style: const TextStyle(color: Color(0xFFe8edf4)),
                   decoration: InputDecoration(
-                    labelText: _ipLoaded ? 'ESP32 IP (saved)' : 'ESP32 IP Address',
+                    labelText: _ipLoaded
+                        ? 'ESP32 IP (saved)'
+                        : 'ESP32 IP Address',
                     labelStyle: const TextStyle(color: Color(0xFF8b9cb3)),
                     filled: true,
                     fillColor: const Color(0xFF243044),
-                    border: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF2d3a4f))),
+                    border: const OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF2d3a4f)),
+                    ),
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: _isLoading ? null : _fetchStatus,
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF38bdf8), foregroundColor: const Color(0xFF0f1419)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF38bdf8),
+                  foregroundColor: const Color(0xFF0f1419),
+                ),
                 child: _isLoading
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0f1419)))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF0f1419),
+                        ),
+                      )
                     : const Text('Connect'),
               ),
               const SizedBox(width: 8),
               IconButton(
                 onPressed: _saveIp,
-                icon: const Icon(Icons.save, color: Color(0xFF38bdf8), size: 18),
+                icon: const Icon(
+                  Icons.save,
+                  color: Color(0xFF38bdf8),
+                  size: 18,
+                ),
                 tooltip: 'Save IP',
               ),
             ],
@@ -788,15 +1181,24 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _isLoading ? null : _scanForEsp,
-                  icon: const Icon(Icons.search, size: 16, color: Color(0xFF38bdf8)),
+                  icon: const Icon(
+                    Icons.search,
+                    size: 16,
+                    color: Color(0xFF38bdf8),
+                  ),
                   label: Text(
                     _isLoading ? 'Scanning...' : 'Scan network for ESP32',
-                    style: const TextStyle(color: Color(0xFF38bdf8), fontSize: 12),
+                    style: const TextStyle(
+                      color: Color(0xFF38bdf8),
+                      fontSize: 12,
+                    ),
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFF2d3a4f)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
               ),
@@ -818,7 +1220,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: const Color(0xFFef4444)),
         ),
-        child: Text(_error!, style: const TextStyle(color: Color(0xFFef4444), fontSize: 12)),
+        child: Text(
+          _error!,
+          style: const TextStyle(color: Color(0xFFef4444), fontSize: 12),
+        ),
       ),
     );
   }
@@ -835,7 +1240,14 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFFe8edf4),
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 12),
           ...children,
         ],
@@ -843,7 +1255,12 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
     );
   }
 
-  Widget _collapsibleSection(String title, bool expanded, VoidCallback onToggle, List<Widget> children) {
+  Widget _collapsibleSection(
+    String title,
+    bool expanded,
+    VoidCallback onToggle,
+    List<Widget> children,
+  ) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -862,17 +1279,28 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(title, style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 14, fontWeight: FontWeight.w600)),
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Color(0xFFe8edf4),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                  Icon(expanded ? Icons.expand_less : Icons.expand_more, color: const Color(0xFF8b9cb3)),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    color: const Color(0xFF8b9cb3),
+                  ),
                 ],
               ),
             ),
           ),
-          if (expanded) Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(children: children),
-          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(children: children),
+            ),
         ],
       ),
     );
@@ -894,15 +1322,24 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
                 labelStyle: const TextStyle(color: Color(0xFF8b9cb3)),
                 filled: true,
                 fillColor: const Color(0xFF243044),
-                border: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF2d3a4f))),
+                border: const OutlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xFF2d3a4f)),
+                ),
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
               ),
             ),
           ),
           if (onSave != null) ...[
             const SizedBox(width: 8),
-            IconButton(onPressed: onSave, icon: const Icon(Icons.save, color: Color(0xFF38bdf8), size: 18), tooltip: 'Save'),
+            IconButton(
+              onPressed: onSave,
+              icon: const Icon(Icons.save, color: Color(0xFF38bdf8), size: 18),
+              tooltip: 'Save',
+            ),
           ],
         ],
       ),
@@ -911,7 +1348,10 @@ class _DeviceConfigScreenState extends State<DeviceConfigScreen> {
 
   Widget _toggleRow(String label, bool value, ValueChanged<bool> onChanged) {
     return SwitchListTile(
-      title: Text(label, style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13)),
+      title: Text(
+        label,
+        style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13),
+      ),
       value: value,
       onChanged: onChanged,
       activeColor: const Color(0xFF38bdf8),
