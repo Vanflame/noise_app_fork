@@ -65,7 +65,6 @@ class _MainShellState extends State<MainShell> {
             const AudioScreen(),
             const ReportsScreen(),
             const AuditScreen(),
-            const ScheduleScreen(),
             const DeviceConfigScreen(isAdmin: true),
           ]
         : <Widget>[
@@ -76,8 +75,21 @@ class _MainShellState extends State<MainShell> {
             const DeviceConfigScreen(isAdmin: false),
           ];
     final titles = isAdmin
-        ? <String>['Dashboard', 'Noise Logs', 'Audio Evidence', 'Reports', 'Audit Trail', 'My Schedule', 'Device Config']
-        : <String>['Dashboard', 'Noise Logs', 'Reports', 'My Schedule', 'Device Config'];
+        ? <String>[
+            'Dashboard',
+            'Noise Logs',
+            'Audio Evidence',
+            'Reports',
+            'Audit Trail',
+            'Device Config',
+          ]
+        : <String>[
+            'Dashboard',
+            'Noise Logs',
+            'Reports',
+            'My Schedule',
+            'Device Config',
+          ];
     final keywords = isAdmin
         ? <String>[
             'At-a-glance monitoring',
@@ -85,7 +97,6 @@ class _MainShellState extends State<MainShell> {
             'RED events with audio',
             'Evaluation & decision support',
             'audit_logs table',
-            'Manage your teaching schedule',
             'ESP32 hardware — thresholds, monitor & logs',
           ]
         : <String>[
@@ -106,7 +117,11 @@ class _MainShellState extends State<MainShell> {
           children: [
             Text(
               titles[_currentIndex],
-              style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 18, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: Color(0xFFe8edf4),
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             Text(
               keywords[_currentIndex],
@@ -121,7 +136,10 @@ class _MainShellState extends State<MainShell> {
                 padding: const EdgeInsets.only(right: 8),
                 child: Text(
                   '${auth.name}',
-                  style: const TextStyle(color: Color(0xFF8b9cb3), fontSize: 12),
+                  style: const TextStyle(
+                    color: Color(0xFF8b9cb3),
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ),
@@ -135,7 +153,9 @@ class _MainShellState extends State<MainShell> {
       ),
       drawer: _buildDrawer(context, auth, isAdmin, titles),
       body: !_isInitialized
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF38bdf8)))
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF38bdf8)),
+            )
           : RefreshIndicator(
               onRefresh: () => data.refreshEvents(),
               child: screens[_currentIndex],
@@ -144,7 +164,12 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _buildDrawer(BuildContext context, AuthProvider auth, bool isAdmin, List<String> titles) {
+  Widget _buildDrawer(
+    BuildContext context,
+    AuthProvider auth,
+    bool isAdmin,
+    List<String> titles,
+  ) {
     return Drawer(
       backgroundColor: const Color(0xFF1a2332),
       child: SafeArea(
@@ -160,19 +185,38 @@ class _MainShellState extends State<MainShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Noise Monitor',
-                    style: TextStyle(color: Color(0xFFe8edf4), fontSize: 16, fontWeight: FontWeight.w600)),
+                  const Text(
+                    'Noise Monitor',
+                    style: TextStyle(
+                      color: Color(0xFFe8edf4),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  const Text('Traffic-light IoT system',
-                    style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 11)),
+                  const Text(
+                    'Traffic-light IoT system',
+                    style: TextStyle(color: Color(0xFF8b9cb3), fontSize: 11),
+                  ),
                   const SizedBox(height: 16),
-                  Text('Signed in as',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 11)),
-                  Text(auth.name,
-                    style: const TextStyle(color: Color(0xFFe8edf4), fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text(
+                    'Signed in as',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                  ),
+                  Text(
+                    auth.name,
+                    style: const TextStyle(
+                      color: Color(0xFFe8edf4),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: isAdmin
                           ? const Color(0xFFef4444).withValues(alpha: 0.2)
@@ -183,7 +227,9 @@ class _MainShellState extends State<MainShell> {
                       auth.role.toUpperCase(),
                       style: TextStyle(
                         fontSize: 10,
-                        color: isAdmin ? const Color(0xFFfca5a5) : const Color(0xFF86efac),
+                        color: isAdmin
+                            ? const Color(0xFFfca5a5)
+                            : const Color(0xFF86efac),
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -197,11 +243,18 @@ class _MainShellState extends State<MainShell> {
                 children: [
                   _drawerItem(0, Icons.dashboard_rounded, 'Dashboard'),
                   _drawerItem(1, Icons.list_alt_rounded, 'Noise Logs'),
-                  if (isAdmin) _drawerItem(2, Icons.mic_rounded, 'Audio Evidence'),
+                  if (isAdmin)
+                    _drawerItem(2, Icons.mic_rounded, 'Audio Evidence'),
                   _drawerItem(3, Icons.bar_chart_rounded, 'Reports'),
-                  if (isAdmin) _drawerItem(4, Icons.history_rounded, 'Audit Trail'),
-                  _drawerItem(titles.length - 2, Icons.calendar_today_rounded, 'My Schedule'),
-                  _drawerItem(titles.length - 1, Icons.settings_ethernet_rounded, 'Device Config'),
+                  if (isAdmin)
+                    _drawerItem(4, Icons.history_rounded, 'Audit Trail'),
+                  if (!isAdmin)
+                    _drawerItem(4, Icons.calendar_today_rounded, 'My Schedule'),
+                  _drawerItem(
+                    titles.length - 1,
+                    Icons.settings_ethernet_rounded,
+                    'Device Config',
+                  ),
                 ],
               ),
             ),
@@ -220,11 +273,20 @@ class _MainShellState extends State<MainShell> {
                       );
                     }
                   },
-                  icon: const Icon(Icons.logout, size: 16, color: Color(0xFF8b9cb3)),
-                  label: const Text('Sign out', style: TextStyle(color: Color(0xFF8b9cb3))),
+                  icon: const Icon(
+                    Icons.logout,
+                    size: 16,
+                    color: Color(0xFF8b9cb3),
+                  ),
+                  label: const Text(
+                    'Sign out',
+                    style: TextStyle(color: Color(0xFF8b9cb3)),
+                  ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFF2d3a4f)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
@@ -238,12 +300,18 @@ class _MainShellState extends State<MainShell> {
   Widget _drawerItem(int index, IconData icon, String title) {
     final isSelected = _currentIndex == index;
     return ListTile(
-      leading: Icon(icon, color: isSelected ? const Color(0xFF38bdf8) : const Color(0xFF8b9cb3), size: 20),
-      title: Text(title,
+      leading: Icon(
+        icon,
+        color: isSelected ? const Color(0xFF38bdf8) : const Color(0xFF8b9cb3),
+        size: 20,
+      ),
+      title: Text(
+        title,
         style: TextStyle(
           color: isSelected ? const Color(0xFF38bdf8) : const Color(0xFF8b9cb3),
           fontSize: 14,
-        )),
+        ),
+      ),
       selected: isSelected,
       selectedTileColor: const Color(0xFF38bdf8).withValues(alpha: 0.08),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -256,16 +324,38 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildBottomNav(bool isAdmin) {
     final items = <BottomNavigationBarItem>[
-      const BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Dashboard'),
-      const BottomNavigationBarItem(icon: Icon(Icons.list_alt_rounded), label: 'Logs'),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.dashboard_rounded),
+        label: 'Dashboard',
+      ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.list_alt_rounded),
+        label: 'Logs',
+      ),
       if (isAdmin)
-        const BottomNavigationBarItem(icon: Icon(Icons.mic_rounded), label: 'Audio'),
-      const BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Reports'),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.mic_rounded),
+          label: 'Audio',
+        ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.bar_chart_rounded),
+        label: 'Reports',
+      ),
       if (isAdmin) ...[
-        const BottomNavigationBarItem(icon: Icon(Icons.history_rounded), label: 'Audit'),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.history_rounded),
+          label: 'Audit',
+        ),
       ],
-      const BottomNavigationBarItem(icon: Icon(Icons.calendar_today_rounded), label: 'Schedule'),
-      const BottomNavigationBarItem(icon: Icon(Icons.settings_ethernet_rounded), label: 'Device'),
+      if (!isAdmin)
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.calendar_today_rounded),
+          label: 'Schedule',
+        ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.settings_ethernet_rounded),
+        label: 'Device',
+      ),
     ];
 
     return Container(

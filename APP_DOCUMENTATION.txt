@@ -1,0 +1,572 @@
+================================================================================
+  SMART CLASSROOM NOISE MONITOR — APPLICATION DOCUMENTATION
+================================================================================
+
+  Version: 1.5.0+2
+  Platform: Flutter (Android / iOS / Web / Desktop)
+  Backend: Supabase (PostgreSQL + REST API)
+  IoT Device: ESP32 (traffic-light noise monitoring hardware)
+  Repository: https://github.com/Vanflame/noise_app_fork
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+  1. Overview
+  2. Architecture
+  3. User Roles & Permissions
+  4. Screens & Features
+  5. Data Models
+  6. Services & API
+  7. State Management
+  8. ESP32 Device Integration
+  9. Schedule System
+  10. Configuration
+
+================================================================================
+1. OVERVIEW
+================================================================================
+
+  The Smart Classroom Noise Monitor is a Flutter mobile application that
+  integrates with an ESP32-based IoT device to monitor noise levels in
+  classrooms. The system uses a traffic-light indicator system (Green /
+  Yellow / Red) to signal noise levels and provides:
+
+    - Real-time noise monitoring via ESP32 hardware
+    - Historical noise event logging to Supabase
+    - Audio recording of RED-level events
+    - Teacher scheduling for role-based log access
+    - PDF report generation (planned)
+    - ESP32 device configuration (Wi-Fi, thresholds, alerts)
+
+================================================================================
+2. ARCHITECTURE
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    Flutter Mobile App                           │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
+  │  │ Screens  │  │Providers │  │ Services │  │ Models        │  │
+  │  │ (UI)     │→ │(State)   │→ │(API)     │  │ (Data struct) │  │
+  │  └──────────┘  └──────────┘  └──────────┘  └───────────────┘  │
+  └──────────────────────┬──────────────────────────────────────────┘
+                         │ HTTP REST
+  ┌──────────────────────▼──────────────────────────────────────────┐
+  │                    Supabase Backend                             │
+  │  Tables: noise_events, teacher_schedules, profiles,             │
+  │          audit_logs, system_settings, classrooms                │
+  └─────────────────────────────────────────────────────────────────┘
+                         │
+  ┌──────────────────────▼──────────────────────────────────────────┐
+  │                    ESP32 Device                                 │
+  │  Endpoints: /status, /monitor, /events, /save, /scan,          │
+  │             /setThresholds, /setAlertConfig, /playTest001, etc. │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Key Libraries:
+    - provider: State management (ChangeNotifier)
+    - http: REST API calls to Supabase and ESP32
+    - fl_chart: Bar charts and line charts
+    - audioplayers: Audio playback for recorded clips
+    - shared_preferences: Local storage for ESP32 IP/credentials
+    - pdf / printing: PDF report generation (planned)
+
+================================================================================
+3. USER ROLES & PERMISSIONS
+================================================================================
+
+  ┌────────────┬────────────────────────────────────────────────────┐
+  │ Role       │ Permissions                                        │
+  ├────────────┼────────────────────────────────────────────────────┤
+  │ Admin      │ Full system access:                                │
+  │            │  - View all noise events                           │
+  │            │  - View audio evidence                             │
+  │            │  - View audit trail                                │
+  │            │  - Configure ESP32 device                          │
+  │            │  - View system settings                            │
+  │            │  - View reports & heatmaps                         │
+  │            │  - Manage own schedule                             │
+  │            │  - See Supabase error / API failure stats          │
+  ├────────────┼────────────────────────────────────────────────────┤
+  │ Teacher    │ Limited read-only access:                          │
+  │            │  - View noise events ONLY within own schedule      │
+  │            │  - No logs visible if no schedule is set           │
+  │            │  - View reports (filtered to schedule)             │
+  │            │  - Manage own teaching schedule                    │
+  │            │  - Basic device config (non-admin)                 │
+  │            │  - NO audio evidence tab                           │
+  │            │  - NO audit trail tab                              │
+  └────────────┴────────────────────────────────────────────────────┘
+
+================================================================================
+4. SCREENS & FEATURES
+================================================================================
+
+  4.1 Splash Screen (main.dart)
+  ──────────────────────────────────────────────────────────────────
+    - App entry point with animated logo
+    - Auto-navigates to Login Screen after brief delay
+    - Shows app name "Noise Monitor" and tagline
+
+  4.2 Login Screen (login_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Admin login with email/password
+    - Pre-flight network connectivity check (DNS lookup)
+    - ESP32 device detection on local network
+    - Link to Teacher Portal
+    - Link to ESP32 Device Setup
+
+  4.3 Teacher Login Screen (teacher_login_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Teacher login with email/password
+    - Pre-flight network check
+    - Link to Teacher Signup
+    - Link to Admin login
+    - Link to ESP32 Device Setup
+
+  4.4 Teacher Signup Screen (teacher_signup_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Registration form: name, email, password, confirm password,
+      assigned classroom
+    - Creates Supabase auth user + profile (role: teacher)
+    - Creates or links to classroom record
+    - Shows access policy notice
+
+  4.5 Main Shell (main_shell.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Navigation hub with BottomNavigationBar and Drawer
+    - Role-based screen visibility:
+      Admin:  Dashboard, Noise Logs, Audio Evidence, Reports,
+              Audit Trail, My Schedule, Device Config
+      Teacher: Dashboard, Noise Logs, Reports, My Schedule,
+               Device Config
+    - Pull-to-refresh on all screens
+    - Refresh button in AppBar
+    - User name display in AppBar
+    - Sign out from drawer
+
+  4.6 Dashboard Screen (dashboard_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Stats cards:
+      * Noise incidents today
+      * Red alerts this week
+      * Most noisy room (with incident count)
+      * Peak noise time
+      * Supabase errors (admin only)
+      * API failures (admin only)
+    - Bar chart: Noise incidents per room/device
+    - Line chart: Incidents by date & time
+    - Data filtered by role (teacher sees only schedule-matched events)
+
+  4.7 Noise Logs Screen (logs_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Paginated list of noise events from noise_events table
+    - Filters: date range (from/to), room/device, severity, subject
+    - Event card shows: date/time, status pill, room, dB level,
+      warning level, duration, buzzer status, audio recorded flag,
+      subject, teacher
+    - Play audio clip for RED events with audio_url
+    - Pagination controls (prev/next, page info)
+    - Teacher: only sees events within their schedule time windows
+    - Teacher with no schedule: sees empty list
+
+  4.8 Audio Evidence Screen (audio_screen.dart) — Admin only
+  ──────────────────────────────────────────────────────────────────
+    - Lists RED events with audio recordings
+    - Shows: room, date/time, duration, recording ID, dB level,
+      warning level
+    - Play button (placeholder — audio URL available)
+    - Waveform visualization (decorative)
+    - Retention policy info banner
+    - Expiry notice per clip
+
+  4.9 Reports Screen (reports_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - PDF export button (coming soon)
+    - Line chart: Noise trend from noise_events
+    - Bar chart: RED incidents per room/device
+    - Heatmap: RED events by weekday × hour (Mon-Fri, 7AM-2PM)
+    - Data filtered by role
+
+  4.10 Audit Trail Screen (audit_screen.dart) — Admin only
+  ──────────────────────────────────────────────────────────────────
+    - Chronological list of audit_logs entries
+    - Shows: timestamp, action, user, detail
+    - Policy banner describing tracked actions
+
+  4.11 Schedule Screen (schedule_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - CRUD for teacher schedules
+    - Schedule card shows: day badge, subject, time range, room
+    - Add/Edit dialog with:
+      * Day selector (Monday-Sunday)
+      * Start time picker
+      * End time picker
+      * Subject field (optional)
+      * Room field (optional)
+    - Conflict detection (cross-teacher):
+      * Prevents exact duplicate schedules
+      * Prevents overlapping time slots
+      * Checks against ALL teachers' schedules
+      * Shows descriptive error messages
+    - Delete with confirmation dialog
+
+  4.12 Device Config Screen (device_config_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - ESP32 connection management:
+      * IP address input with save
+      * Network scan for ESP32 devices
+      * Auto-detect on load
+    - Wi-Fi / AP Settings:
+      * SSID and password fields
+      * Save Wi-Fi to ESP32
+      * Forget network (disconnect)
+    - Thresholds:
+      * Yellow threshold (dB)
+      * Red threshold (dB)
+    - Alert Timers:
+      * Major repeat interval (min)
+      * Silence reset (sec)
+      * First warning (sec)
+      * Second warning (sec)
+      * Major warning (sec)
+    - Toggles:
+      * Speaker on/off
+      * Noise LEDs on/off
+      * Microphone on/off
+      * Serial logging on/off
+    - Volume control (MP3, 0-30)
+    - MP3 test tracks (01, 02, 03) + Stop
+    - DB Log Config:
+      * Sample interval (ms)
+      * dB change threshold
+      * Heartbeat interval (ms)
+      * Upload interval (min)
+    - LED Test: Green, Yellow, Red, Off
+    - Live Monitor (admin only): real-time ESP32 serial output
+    - Event Log (admin only): real-time ESP32 event log
+    - 3-second polling for live data
+
+  4.13 ESP32 Setup Screen (esp_setup_screen.dart)
+  ──────────────────────────────────────────────────────────────────
+    - Step-by-step Wi-Fi setup wizard
+    - Scans for available Wi-Fi networks via ESP32 AP
+    - Manual SSID/password entry
+    - Saves credentials to ESP32
+    - Polls for connection status
+    - Saves STA IP on successful connection
+    - Success dialog with device IP
+
+================================================================================
+5. DATA MODELS
+================================================================================
+
+  5.1 NoiseEvent (models/noise_event.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields:
+      id            String    Primary key
+      date          String    Event date (YYYY-MM-DD)
+      time          String    Event time (HH:MM)
+      datetime      String    Full ISO datetime
+      room          String    Room name or device ID
+      deviceId      String    ESP32 device ID
+      db            double    Decibel level
+      status        String    'green', 'yellow', or 'red'
+      warningColor  String    Raw warning color from device
+      warningLevel  String    Warning level description
+      buzzer        bool      Whether buzzer was triggered
+      audioRecorded bool      Whether audio was recorded
+      audioUrl      String?   URL to audio clip
+      durationSec   int       Event duration in seconds
+      subject       String    Subject name (from schedule)
+      teacher       String    Teacher name (from schedule)
+      classroomId   String?   Linked classroom
+      eventGroupId  String?   Event group identifier
+      createdAt     String    Record creation timestamp
+
+    Source table: noise_events (Supabase)
+
+  5.2 AuditLog (models/audit_log.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields:
+      action   String    Event type (e.g. "Admin login")
+      user     String    User name or ID
+      time     String    Formatted timestamp
+      detail   String    Event description
+
+    Source table: audit_logs (Supabase)
+
+  5.3 DashboardStats (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields:
+      incidentsToday    int
+      redAlertsWeek     int
+      mostNoisyRoom     String
+      mostNoisyCount    int
+      peakTime          String
+      chartByRoom       List<ChartItem>
+      chartByDateTime   List<DateTimeChartItem>
+
+  5.4 ChartItem (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields: room (String), count (int)
+
+  5.5 DateTimeChartItem (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields: ts (int), date (String), label (String), count (int)
+
+  5.6 HeatmapCell (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields: day (int), dayLabel (String), hour (int), count (int)
+
+  5.7 PaginationResult<T> (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    Fields: items, page, pageSize, total, totalPages, startIndex,
+            endIndex
+
+================================================================================
+6. SERVICES & API
+================================================================================
+
+  6.1 SupabaseService (services/supabase_service.dart)
+  ──────────────────────────────────────────────────────────────────
+    Singleton service for all Supabase REST API calls.
+
+    Auth:
+      signIn(email, password)           → Login via GoTrue
+      signUp(email, password)           → Register via GoTrue
+      signOut(token)                    → Logout
+      getUser(token)                    → Get current user
+
+    Profiles:
+      getProfile(id)                    → Get user profile
+      upsertProfile(id, updates)        → Create or update profile
+      fetchProfiles()                   → List all profiles
+
+    Noise Events:
+      fetchNoiseEvents({filters})       → Query noise_events table
+
+    Classrooms:
+      fetchClassrooms()                 → List classrooms
+      createClassroom(name)             → Create classroom
+      linkTeacherClassroom(tId, cId)    → Link teacher to classroom
+      fetchTeacherClassrooms(tId)       → Get teacher's classrooms
+
+    Audit Logs:
+      fetchAuditLogs({limit})           → Query audit_logs
+      insertAuditLog(record)            → Insert audit entry
+
+    System Settings:
+      fetchSystemSettings()             → Get system config
+      saveSystemSettings(settings)      → Update system config
+
+    Schedules:
+      fetchTeacherSchedules(teacherId)  → Get one teacher's schedules
+      fetchAllTeacherSchedules()        → Get ALL teachers' schedules
+      insertRecord(table, data)         → Generic insert
+      updateRecord(table, query, data)  → Generic update
+      deleteRecord(table, query)        → Generic delete
+
+  6.2 StorageService (services/storage_service.dart)
+  ──────────────────────────────────────────────────────────────────
+    Local storage using shared_preferences.
+
+    Methods:
+      getEspIp() / saveEspIp(ip)
+      getWifiSsid() / saveWifiSsid(ssid)
+      getWifiPassword() / saveWifiPassword(pass)
+      setEspSetupDone(bool) / isEspSetupDone()
+
+================================================================================
+7. STATE MANAGEMENT
+================================================================================
+
+  Using Provider (ChangeNotifier) pattern.
+
+  7.1 AuthProvider (providers/auth_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    State:
+      authData, profile, role, name, email, userId, accessToken,
+      isLoading, error, loginAt, lastActivity
+
+    Methods:
+      login(email, password)            → Authenticate and load profile
+      logout()                          → Clear session + audit log
+      signupTeacher({name, email, pass, room}) → Register teacher
+      touchSession()                    → Update last activity
+
+    Session management:
+      remainingSessionMs                → Time until auto-logout
+      isLoggedIn                        → Token present
+      isAdmin                           → role == 'admin'
+
+  7.2 DataProvider (providers/data_provider.dart)
+  ──────────────────────────────────────────────────────────────────
+    State:
+      events, classrooms, auditLogs, settings, schedules,
+      allSchedules, isLoading, error, lastFetch, error counts
+
+    Data Loading:
+      loadAllData({force})              → Fetch events + classrooms
+      refreshEvents()                   → Re-fetch events only
+      loadSettings()                    → Fetch system settings
+      loadAuditLogs()                   → Fetch audit logs
+      loadSchedules(teacherId)          → Fetch schedules + all schedules
+
+    Filtering:
+      filterEvents({room, severity, from, to, subject})
+      filterForRole(role, assignedDeviceId)
+        - Teacher + no schedules → returns []
+        - Teacher + schedules → matches by day/time
+        - Admin → returns all events
+
+    Dashboard:
+      getDashboardStats(role, deviceId)
+      getRedAudioClips(role, deviceId)
+      buildHeatmap({events})
+
+    Schedule CRUD:
+      getTeacherSchedules(teacherId)
+      addSchedule(schedule)
+      updateSchedule(id, updates)
+      deleteSchedule(id)
+      checkScheduleConflict(day, start, end, {excludeId})
+        - Checks against ALL teachers
+        - Returns null (ok) or error string (conflict)
+
+    Pagination:
+      paginate(items, page)
+
+================================================================================
+8. ESP32 DEVICE INTEGRATION
+================================================================================
+
+  The ESP32 runs a custom firmware that exposes HTTP endpoints.
+
+  8.1 Endpoints
+  ──────────────────────────────────────────────────────────────────
+    GET  /status          → Device status JSON (SSID, IP, thresholds,
+                            toggles, volume, etc.)
+    GET  /monitor         → Live serial monitor output
+    GET  /events          → Live event log
+    GET  /scan            → Wi-Fi network scan results
+    GET  /sta_ip          → STA IP address
+    POST /save            → Save Wi-Fi credentials (form data)
+    GET  /disconnect      → Forget Wi-Fi network
+    GET  /setThresholds   → Set yellow/red thresholds
+    GET  /setAlertConfig  → Set alert timer values
+    GET  /setSpeaker      → Toggle speaker
+    GET  /setNoiseLedsEnabled → Toggle noise LEDs
+    GET  /setMicEnabled   → Toggle microphone
+    GET  /setSerialLogging → Toggle serial logging
+    GET  /setDbLogConfig  → Configure dB logging
+    GET  /setMp3Volume    → Set MP3 volume
+    GET  /playTest001     → Play test track 1
+    GET  /playTest002     → Play test track 2
+    GET  /playTest003     → Play test track 3
+    GET  /stopMp3         → Stop MP3 playback
+    GET  /testNoiseLed    → Test LED (c=green/yellow/red/off)
+
+  8.2 Detection Flow
+  ──────────────────────────────────────────────────────────────────
+    1. App tries saved IP first
+    2. Scans mDNS hostnames (esp32.local, noise-monitor.local)
+    3. Scans common LAN IPs (192.168.1.x, 192.168.0.x, etc.)
+    4. Checks AP mode IP (192.168.4.1)
+    5. On success: saves IP, fetches status, starts polling
+
+  8.3 Setup Flow (ESP32 Setup Screen)
+  ──────────────────────────────────────────────────────────────────
+    1. User connects phone to ESP32 AP (Classroom-Noise-Setup)
+    2. App scans for available Wi-Fi networks via ESP32
+    3. User selects network and enters password
+    4. App sends credentials to ESP32
+    5. ESP32 connects to Wi-Fi
+    6. App polls for STA IP
+    7. IP is saved to local storage
+
+================================================================================
+9. SCHEDULE SYSTEM
+================================================================================
+
+  9.1 Purpose
+  ──────────────────────────────────────────────────────────────────
+    Teachers can define their class schedules so that noise event
+    visibility is restricted to their actual teaching hours.
+
+  9.2 Rules
+  ──────────────────────────────────────────────────────────────────
+    - Teacher with NO schedules → sees NO logs (empty list)
+    - Teacher with schedules → sees only events that fall within
+      their scheduled day + time windows
+    - No duplicate schedules allowed (same day, same start/end)
+    - No overlapping schedules allowed (across ALL teachers)
+    - Conflict detection runs client-side before saving to Supabase
+
+  9.3 Data Structure
+  ──────────────────────────────────────────────────────────────────
+    Supabase table: teacher_schedules
+    Fields:
+      id           UUID (PK)
+      teacher_id   UUID (FK to auth.users)
+      day          String (Monday-Sunday)
+      start_time   String (HH:MM, 24-hour)
+      end_time     String (HH:MM, 24-hour)
+      subject      String (optional)
+      room         String (optional)
+
+  9.4 Conflict Detection Logic
+  ──────────────────────────────────────────────────────────────────
+    Two schedules conflict if:
+      - Same day AND
+      - Time ranges overlap (newStart < existingEnd && newEnd > existingStart)
+    
+    Exact duplicates get a specific error message:
+      "An identical schedule already exists on this day and time."
+    
+    Overlapping schedules get:
+      "This time slot overlaps with another schedule."
+
+================================================================================
+10. CONFIGURATION
+================================================================================
+
+  10.1 App Configuration (config/app_config.dart)
+  ──────────────────────────────────────────────────────────────────
+    Supabase:
+      supabaseUrl       String    Supabase project URL
+      supabaseAnonKey   String    Supabase anon/public key
+
+    Default Settings:
+      thresholdGreen    int       50 dB
+      thresholdYellow   int       65 dB
+      thresholdRed      int       70 dB
+      buzzerEnabled     bool      true
+      maxBeeps          int       3
+      buzzerCooldown    int       30 (seconds)
+      audioLengthMin    int       3 (seconds)
+      audioLengthMax    int       5 (seconds)
+      alertCooldown     int       60 (seconds)
+      retentionDays     int       14
+      teacherAccessHours int      48
+
+    UI:
+      logsPageSize      int       20
+      sessionTimeoutMs  int       3600000 (1 hour)
+
+  10.2 Theme
+  ──────────────────────────────────────────────────────────────────
+    Dark theme throughout:
+      Background:       #0f1419 (near-black)
+      Surface:          #1a2332 (dark blue-gray)
+      Input fill:       #243044
+      Border:           #2d3a4f
+      Primary:          #38bdf8 (sky blue)
+      Text primary:     #e8edf4 (off-white)
+      Text secondary:   #8b9cb3 (muted gray)
+      Green:            #22c55e
+      Yellow:           #eab308
+      Red:              #ef4444
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

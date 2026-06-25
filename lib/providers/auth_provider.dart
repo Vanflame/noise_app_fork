@@ -31,7 +31,8 @@ class AuthProvider extends ChangeNotifier {
 
   int get remainingSessionMs {
     if (_lastActivity == null) return 0;
-    return (AppConfig.sessionTimeoutMs - DateTime.now().difference(_lastActivity!).inMilliseconds)
+    return (AppConfig.sessionTimeoutMs -
+            DateTime.now().difference(_lastActivity!).inMilliseconds)
         .clamp(0, AppConfig.sessionTimeoutMs);
   }
 
@@ -61,6 +62,9 @@ class AuthProvider extends ChangeNotifier {
       _accessToken = accessToken;
       _userId = user['id']?.toString() ?? '';
       _email = user['email']?.toString() ?? email;
+
+      // Set the auth token on SupabaseService for authenticated API calls
+      _supabase.setAccessToken(accessToken);
 
       // Load profile
       final profile = await _supabase.getProfile(_userId);
@@ -97,14 +101,18 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       final errStr = e.toString();
       // Provide more helpful error messages
-      if (errStr.contains('SocketException') || errStr.contains('Failed host lookup')) {
-        _error = 'Network error: Cannot reach Supabase. Check your internet connection and DNS settings.';
+      if (errStr.contains('SocketException') ||
+          errStr.contains('Failed host lookup')) {
+        _error =
+            'Network error: Cannot reach Supabase. Check your internet connection and DNS settings.';
       } else if (errStr.contains('Invalid login credentials')) {
         _error = 'Invalid email or password. Please check your credentials.';
       } else if (errStr.contains('Email not confirmed')) {
-        _error = 'Email not confirmed. Please check your email and confirm your account.';
+        _error =
+            'Email not confirmed. Please check your email and confirm your account.';
       } else if (errStr.contains('Too many requests')) {
-        _error = 'Too many login attempts. Please wait a few minutes and try again.';
+        _error =
+            'Too many login attempts. Please wait a few minutes and try again.';
       } else {
         _error = 'Login failed: $errStr';
       }

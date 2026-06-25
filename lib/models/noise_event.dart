@@ -43,16 +43,21 @@ class NoiseEvent {
 
   factory NoiseEvent.fromJson(Map<String, dynamic> row) {
     final dt = row['event_time_utc'] ?? row['created_at'] ?? '';
-    final d = DateTime.tryParse(dt.toString()) ?? DateTime.now();
+    final utc = DateTime.tryParse(dt.toString()) ?? DateTime.now();
+    // Convert to local time so displayed date/time match the teacher's schedule timezone
+    final d = utc.toLocal();
     final color = (row['warning_color'] ?? 'RED').toString().toLowerCase();
     String status = 'red';
-    if (color == 'green' || color == 'yellow') status = color;
-    else if (color == 'red') status = 'red';
+    if (color == 'green' || color == 'yellow')
+      status = color;
+    else if (color == 'red')
+      status = 'red';
 
     return NoiseEvent(
       id: row['id']?.toString() ?? '',
       date: d.toIso8601String().substring(0, 10),
-      time: '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
+      time:
+          '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
       datetime: dt.toString(),
       room: row['room']?.toString() ?? row['device_id']?.toString() ?? '—',
       deviceId: row['device_id']?.toString() ?? '',
@@ -63,7 +68,9 @@ class NoiseEvent {
       buzzer: row['buzzer_triggered'] == true,
       audioRecorded: row['audio_recorded'] == true,
       audioUrl: row['audio_url']?.toString(),
-      durationSec: (row['duration_seconds'] is num) ? (row['duration_seconds'] as num).toInt() : 0,
+      durationSec: (row['duration_seconds'] is num)
+          ? (row['duration_seconds'] as num).toInt()
+          : 0,
       subject: row['subject']?.toString() ?? '—',
       teacher: row['teacher_name']?.toString() ?? '—',
       classroomId: row['classroom_id']?.toString(),

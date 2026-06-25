@@ -83,8 +83,11 @@ class DataProvider extends ChangeNotifier {
   List<NoiseEvent> _events = [];
   List<Map<String, dynamic>> _classrooms = [];
   List<AuditLog> _auditLogs = [];
-  Map<String, dynamic> _settings = Map<String, dynamic>.from(AppConfig.defaultSettings);
+  Map<String, dynamic> _settings = Map<String, dynamic>.from(
+    AppConfig.defaultSettings,
+  );
   List<Map<String, dynamic>> _schedules = [];
+  List<Map<String, dynamic>> _allSchedules = []; // across ALL teachers
   String _currentTeacherId = '';
   bool _isLoading = false;
   String? _error;
@@ -102,16 +105,28 @@ class DataProvider extends ChangeNotifier {
   int get apiFailCount => _apiFailCount;
 
   List<String> get roomList {
-    final fromLogs = _events.map((e) => e.room).where((r) => r.isNotEmpty && r != '—').toSet();
+    final fromLogs = _events
+        .map((e) => e.room)
+        .where((r) => r.isNotEmpty && r != '—')
+        .toSet();
     final fromDb = _classrooms
-        .map((c) => c['name']?.toString() ?? c['room_name']?.toString() ?? c['room']?.toString() ?? '')
+        .map(
+          (c) =>
+              c['name']?.toString() ??
+              c['room_name']?.toString() ??
+              c['room']?.toString() ??
+              '',
+        )
         .where((r) => r.isNotEmpty)
         .toSet();
     return {...fromLogs, ...fromDb}.toList()..sort();
   }
 
   Future<void> loadAllData({bool force = false}) async {
-    if (!force && _lastFetch != null && DateTime.now().difference(_lastFetch!).inSeconds < 5) return;
+    if (!force &&
+        _lastFetch != null &&
+        DateTime.now().difference(_lastFetch!).inSeconds < 5)
+      return;
 
     _isLoading = true;
     _error = null;
@@ -151,17 +166,38 @@ class DataProvider extends ChangeNotifier {
       final dbSettings = await _supabase.fetchSystemSettings();
       if (dbSettings != null) {
         _settings = {
-          'thresholdGreen': dbSettings['threshold_green'] ?? AppConfig.defaultSettings['thresholdGreen'],
-          'thresholdYellow': dbSettings['threshold_yellow'] ?? AppConfig.defaultSettings['thresholdYellow'],
-          'thresholdRed': dbSettings['threshold_red'] ?? AppConfig.defaultSettings['thresholdRed'],
-          'buzzerEnabled': dbSettings['buzzer_enabled'] ?? AppConfig.defaultSettings['buzzerEnabled'],
-          'maxBeeps': dbSettings['max_beeps'] ?? AppConfig.defaultSettings['maxBeeps'],
-          'buzzerCooldown': dbSettings['buzzer_cooldown'] ?? AppConfig.defaultSettings['buzzerCooldown'],
-          'audioLengthMin': dbSettings['audio_length_min'] ?? AppConfig.defaultSettings['audioLengthMin'],
-          'audioLengthMax': dbSettings['audio_length_max'] ?? AppConfig.defaultSettings['audioLengthMax'],
-          'alertCooldown': dbSettings['alert_cooldown'] ?? AppConfig.defaultSettings['alertCooldown'],
-          'retentionDays': dbSettings['retention_days'] ?? AppConfig.defaultSettings['retentionDays'],
-          'teacherAccessHours': dbSettings['teacher_access_hours'] ?? AppConfig.defaultSettings['teacherAccessHours'],
+          'thresholdGreen':
+              dbSettings['threshold_green'] ??
+              AppConfig.defaultSettings['thresholdGreen'],
+          'thresholdYellow':
+              dbSettings['threshold_yellow'] ??
+              AppConfig.defaultSettings['thresholdYellow'],
+          'thresholdRed':
+              dbSettings['threshold_red'] ??
+              AppConfig.defaultSettings['thresholdRed'],
+          'buzzerEnabled':
+              dbSettings['buzzer_enabled'] ??
+              AppConfig.defaultSettings['buzzerEnabled'],
+          'maxBeeps':
+              dbSettings['max_beeps'] ?? AppConfig.defaultSettings['maxBeeps'],
+          'buzzerCooldown':
+              dbSettings['buzzer_cooldown'] ??
+              AppConfig.defaultSettings['buzzerCooldown'],
+          'audioLengthMin':
+              dbSettings['audio_length_min'] ??
+              AppConfig.defaultSettings['audioLengthMin'],
+          'audioLengthMax':
+              dbSettings['audio_length_max'] ??
+              AppConfig.defaultSettings['audioLengthMax'],
+          'alertCooldown':
+              dbSettings['alert_cooldown'] ??
+              AppConfig.defaultSettings['alertCooldown'],
+          'retentionDays':
+              dbSettings['retention_days'] ??
+              AppConfig.defaultSettings['retentionDays'],
+          'teacherAccessHours':
+              dbSettings['teacher_access_hours'] ??
+              AppConfig.defaultSettings['teacherAccessHours'],
         };
         notifyListeners();
       }
@@ -204,50 +240,65 @@ class DataProvider extends ChangeNotifier {
     }
     if (subject != null && subject.isNotEmpty) {
       final q = subject.toLowerCase();
-      filtered = filtered.where((e) =>
-          e.subject.toLowerCase().contains(q) ||
-          e.teacher.toLowerCase().contains(q)).toList();
+      filtered = filtered
+          .where(
+            (e) =>
+                e.subject.toLowerCase().contains(q) ||
+                e.teacher.toLowerCase().contains(q),
+          )
+          .toList();
     }
     return filtered;
   }
 
   List<NoiseEvent> filterForRole(String role, String? assignedDeviceId) {
     if (role == 'teacher') {
-      final schedules = _schedules;
-      if (schedules.isEmpty && assignedDeviceId != null) {
-        return _events.where((e) => e.deviceId == assignedDeviceId).toList();
+      // If teacher has no schedules, they should see NO logs
+      if (_schedules.isEmpty) {
+        return [];
       }
-      if (schedules.isNotEmpty) {
-        return _events.where((e) => _matchesTeacherSchedule(e, schedules)).toList();
-      }
+      // If teacher has schedules, only show events within those schedules
+      return _events
+          .where((e) => _matchesTeacherSchedule(e, _schedules))
+          .toList();
     }
     return _events;
   }
 
-  bool _matchesTeacherSchedule(NoiseEvent event, List<Map<String, dynamic>> schedules) {
+  bool _matchesTeacherSchedule(
+    NoiseEvent event,
+    List<Map<String, dynamic>> schedules,
+  ) {
     final eventDateTime = DateTime.tryParse(event.datetime);
     if (eventDateTime == null) return false;
 
-    final eventDay = _dayName(eventDateTime.weekday);
-    final eventTime = TimeOfDay(hour: eventDateTime.hour, minute: eventDateTime.minute);
+    // Convert to local time (schedules are in local time, events are stored in UTC)
+    final localDateTime = eventDateTime.toLocal();
+    final eventDay = _dayName(localDateTime.weekday);
+    final eventMinutes = localDateTime.hour * 60 + localDateTime.minute;
 
     for (final schedule in schedules) {
       final scheduleDay = schedule['day']?.toString() ?? '';
-
       if (eventDay != scheduleDay) continue;
 
-      final startParts = (schedule['start_time']?.toString() ?? '00:00').split(':');
-      final endParts = (schedule['end_time']?.toString() ?? '23:59').split(':');
-      final startTime = TimeOfDay(
-        hour: int.tryParse(startParts[0]) ?? 0,
-        minute: int.tryParse(startParts[1]) ?? 0,
-      );
-      final endTime = TimeOfDay(
-        hour: int.tryParse(endParts[0]) ?? 23,
-        minute: int.tryParse(endParts[1]) ?? 59,
-      );
+      // Parse start time (HH:MM or HH:MM:SS) — handle any extra parts
+      final startStr = schedule['start_time']?.toString() ?? '';
+      final endStr = schedule['end_time']?.toString() ?? '';
+      if (startStr.isEmpty || endStr.isEmpty) continue;
 
-      if (_isTimeInRange(eventTime, startTime, endTime)) {
+      final startParts = startStr.split(':');
+      final endParts = endStr.split(':');
+
+      final startMinutes =
+          (int.tryParse(startParts[0]) ?? 0) * 60 +
+          (startParts.length > 1 ? (int.tryParse(startParts[1]) ?? 0) : 0);
+      final endMinutes =
+          (int.tryParse(endParts[0]) ?? 0) * 60 +
+          (endParts.length > 1 ? (int.tryParse(endParts[1]) ?? 0) : 0);
+
+      // Check if event time falls within schedule range
+      // start is inclusive, end is exclusive (a 08:00-09:00 schedule matches 08:00-08:59)
+      if (eventMinutes >= startMinutes && eventMinutes < endMinutes) {
         return true;
       }
     }
@@ -259,11 +310,19 @@ class DataProvider extends ChangeNotifier {
     final t = totalMinutes(time);
     final s = totalMinutes(start);
     final e = totalMinutes(end);
-    return t >= s && t <= e;
+    return t >= s && t < e;
   }
 
   String _dayName(int weekday) {
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
     return days[weekday - 1];
   }
 
@@ -293,8 +352,12 @@ class DataProvider extends ChangeNotifier {
     final weekAgo = DateTime.now().subtract(const Duration(days: 7));
 
     final todayLogs = filtered.where((e) => e.date == today).toList();
-    final weekRed = filtered.where((e) =>
-        e.status == 'red' && DateTime.tryParse(e.datetime) != null && DateTime.parse(e.datetime).isAfter(weekAgo));
+    final weekRed = filtered.where(
+      (e) =>
+          e.status == 'red' &&
+          DateTime.tryParse(e.datetime) != null &&
+          DateTime.parse(e.datetime).isAfter(weekAgo),
+    );
 
     // Room counts
     final roomCounts = <String, int>{};
@@ -332,7 +395,8 @@ class DataProvider extends ChangeNotifier {
       redAlertsWeek: weekRed.length,
       mostNoisyRoom: mostNoisyRoom,
       mostNoisyCount: mostNoisyCount,
-      peakTime: '${peakHour.toString().padLeft(2, '0')}:00–${(peakHour + 1).toString().padLeft(2, '0')}:00',
+      peakTime:
+          '${peakHour.toString().padLeft(2, '0')}:00–${(peakHour + 1).toString().padLeft(2, '0')}:00',
       chartByRoom: _aggregateByRoom(filtered),
       chartByDateTime: _aggregateByDateTime(filtered),
     );
@@ -341,14 +405,22 @@ class DataProvider extends ChangeNotifier {
   List<ChartItem> _aggregateByRoom(List<NoiseEvent> logs) {
     final counts = <String, int>{};
     for (final e in logs.where((e) => e.status != 'green')) {
-      final key = e.room.isNotEmpty && e.room != '—' ? e.room : e.deviceId.isNotEmpty ? e.deviceId : 'Unknown';
+      final key = e.room.isNotEmpty && e.room != '—'
+          ? e.room
+          : e.deviceId.isNotEmpty
+          ? e.deviceId
+          : 'Unknown';
       counts[key] = (counts[key] ?? 0) + 1;
     }
-    final entries = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final entries = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     return entries.map((e) => ChartItem(room: e.key, count: e.value)).toList();
   }
 
-  List<DateTimeChartItem> _aggregateByDateTime(List<NoiseEvent> logs, {int dayWindow = 14}) {
+  List<DateTimeChartItem> _aggregateByDateTime(
+    List<NoiseEvent> logs, {
+    int dayWindow = 14,
+  }) {
     final cutoff = DateTime.now().subtract(Duration(days: dayWindow));
     final buckets = <int, DateTimeChartItem>{};
 
@@ -372,29 +444,46 @@ class DataProvider extends ChangeNotifier {
     if (series.isEmpty) {
       for (int i = dayWindow - 1; i >= 0; i--) {
         final d = DateTime.now().subtract(Duration(days: i));
-        series.add(DateTimeChartItem(
-          ts: d.millisecondsSinceEpoch,
-          date: d.toIso8601String().substring(0, 10),
-          label: '${_monthAbbr(d.month)} ${d.day}, 12:00',
-          count: 0,
-        ));
+        series.add(
+          DateTimeChartItem(
+            ts: d.millisecondsSinceEpoch,
+            date: d.toIso8601String().substring(0, 10),
+            label: '${_monthAbbr(d.month)} ${d.day}, 12:00',
+            count: 0,
+          ),
+        );
       }
     }
     return series.sublist(0, min(series.length, 36));
   }
 
   String _monthAbbr(int month) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return months[month - 1];
   }
 
   // ─── Audio clips helper ───
   List<NoiseEvent> getRedAudioClips(String role, String? assignedDeviceId) {
-    var clips = _events.where((e) =>
-        e.status == 'red' &&
-        e.audioRecorded &&
-        e.audioUrl != null &&
-        (e.warningColor.toUpperCase() == 'RED'));
+    var clips = _events.where(
+      (e) =>
+          e.status == 'red' &&
+          e.audioRecorded &&
+          e.audioUrl != null &&
+          (e.warningColor.toUpperCase() == 'RED'),
+    );
 
     if (role == 'teacher' && assignedDeviceId != null) {
       clips = clips.where((e) => e.deviceId == assignedDeviceId);
@@ -420,12 +509,14 @@ class DataProvider extends ChangeNotifier {
     final cells = <HeatmapCell>[];
     for (int d = 1; d <= 5; d++) {
       for (final h in hours) {
-        cells.add(HeatmapCell(
-          day: d,
-          dayLabel: dayLabels[d],
-          hour: h,
-          count: grid['$d-$h'] ?? 0,
-        ));
+        cells.add(
+          HeatmapCell(
+            day: d,
+            dayLabel: dayLabels[d],
+            hour: h,
+            count: grid['$d-$h'] ?? 0,
+          ),
+        );
       }
     }
     return cells;
@@ -436,8 +527,18 @@ class DataProvider extends ChangeNotifier {
     try {
       _currentTeacherId = teacherId;
       _schedules = await _supabase.fetchTeacherSchedules(teacherId);
-      notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      // silently keep cached schedules
+    }
+    // Also load all schedules for cross-teacher conflict detection
+    try {
+      _allSchedules = await _supabase.fetchAllTeacherSchedules();
+    } catch (e) {
+      // If fetching all schedules fails, fall back to using only this teacher's schedules
+      // so at least same-teacher conflicts are detected
+      _allSchedules = List<Map<String, dynamic>>.from(_schedules);
+    }
+    notifyListeners();
   }
 
   List<Map<String, dynamic>> getTeacherSchedules(String teacherId) {
@@ -474,6 +575,114 @@ class DataProvider extends ChangeNotifier {
     }
   }
 
+  /// Checks for conflicts against ALL teacher schedules.
+  /// Returns null if no conflict, or a descriptive error string if there is one.
+  /// [excludeId] is the schedule ID to exclude from the check (for edits).
+  /// This version ensures schedules are loaded from the server before checking.
+  Future<String?> checkScheduleConflictAsync(
+    String day,
+    String startTime,
+    String endTime, {
+    String? excludeId,
+    String? teacherId,
+  }) async {
+    final newStart = _timeToMinutes(startTime);
+    final newEnd = _timeToMinutes(endTime);
+    final currentTeacherId = teacherId ?? _currentTeacherId;
+
+    // Always fetch fresh data from the database to ensure accuracy
+    List<Map<String, dynamic>> dbSchedules = [];
+    bool fetchedAll = false;
+    try {
+      // Fetch ALL schedules from the database (requires RLS to allow this)
+      dbSchedules = await _supabase.fetchAllTeacherSchedules();
+      fetchedAll = true;
+    } catch (e) {
+      // If we can't fetch all schedules, try fetching just this teacher's schedules
+      if (currentTeacherId.isNotEmpty) {
+        try {
+          dbSchedules = await _supabase.fetchTeacherSchedules(currentTeacherId);
+        } catch (e2) {
+          return 'Unable to verify schedule conflicts. Please check your connection and try again.';
+        }
+      } else {
+        return 'Unable to verify schedule conflicts. Please check your connection and try again.';
+      }
+    }
+
+    if (dbSchedules.isEmpty) {
+      // No schedules exist in the database, so no conflict
+      return null;
+    }
+
+    // Check for conflicts against schedules from the database
+    for (final s in dbSchedules) {
+      // Skip the schedule being edited
+      if (excludeId != null && s['id']?.toString() == excludeId) continue;
+      // If we only fetched our own schedules, skip other teachers' entries
+      if (!fetchedAll && s['teacher_id']?.toString() != currentTeacherId)
+        continue;
+      if (s['day']?.toString() != day) continue;
+
+      final existingStart = _timeToMinutes(
+        s['start_time']?.toString() ?? '00:00',
+      );
+      final existingEnd = _timeToMinutes(s['end_time']?.toString() ?? '23:59');
+
+      // Check if time ranges overlap
+      if (newStart < existingEnd && newEnd > existingStart) {
+        // Determine if it's an exact duplicate
+        if (newStart == existingStart && newEnd == existingEnd) {
+          return 'An identical schedule already exists on this day and time.';
+        }
+        return 'This time slot overlaps with another schedule.';
+      }
+    }
+
+    return null; // no conflict
+  }
+
+  /// Synchronous version using cached schedules only (may miss cross-teacher conflicts if not loaded).
+  String? checkScheduleConflict(
+    String day,
+    String startTime,
+    String endTime, {
+    String? excludeId,
+  }) {
+    final newStart = _timeToMinutes(startTime);
+    final newEnd = _timeToMinutes(endTime);
+
+    // Search all schedules (across all teachers) for conflicts
+    final allToCheck = _allSchedules.isNotEmpty ? _allSchedules : _schedules;
+    for (final s in allToCheck) {
+      if (excludeId != null && s['id']?.toString() == excludeId) continue;
+      if (s['day']?.toString() != day) continue;
+
+      final existingStart = _timeToMinutes(
+        s['start_time']?.toString() ?? '00:00',
+      );
+      final existingEnd = _timeToMinutes(s['end_time']?.toString() ?? '23:59');
+
+      // Check if time ranges overlap
+      if (newStart < existingEnd && newEnd > existingStart) {
+        // Determine if it's an exact duplicate
+        if (newStart == existingStart && newEnd == existingEnd) {
+          return 'An identical schedule already exists on this day and time.';
+        }
+        return 'This time slot overlaps with another schedule.';
+      }
+    }
+    return null; // no conflict
+  }
+
+  int _timeToMinutes(String time) {
+    final parts = time.split(':');
+    if (parts.length < 2) return 0;
+    final hours = int.tryParse(parts[0]) ?? 0;
+    final minutes = int.tryParse(parts[1]) ?? 0;
+    return hours * 60 + minutes;
+  }
+
   // ─── Teacher─weekly events ───
   Map<String, dynamic> getTeacherWeeklyEvents({int days = 7}) {
     final end = DateTime.now();
@@ -481,12 +690,17 @@ class DataProvider extends ChangeNotifier {
 
     final inWindow = _events.where((e) {
       final d = DateTime.tryParse(e.datetime);
-      return d != null && !d.isBefore(start) && !d.isAfter(end) && e.status != 'green';
+      return d != null &&
+          !d.isBefore(start) &&
+          !d.isAfter(end) &&
+          e.status != 'green';
     }).toList();
 
     final teacherMap = <String, List<NoiseEvent>>{};
     for (final e in inWindow) {
-      final name = (e.teacher.isNotEmpty && e.teacher != '—') ? e.teacher : 'Unknown';
+      final name = (e.teacher.isNotEmpty && e.teacher != '—')
+          ? e.teacher
+          : 'Unknown';
       teacherMap.putIfAbsent(name, () => []);
       teacherMap[name]!.add(e);
     }
@@ -499,7 +713,9 @@ class DataProvider extends ChangeNotifier {
 
     return {
       'dates': dates,
-      'teachers': teacherMap.entries.map((e) => {'teacher': e.key, 'events': e.value}).toList(),
+      'teachers': teacherMap.entries
+          .map((e) => {'teacher': e.key, 'events': e.value})
+          .toList(),
     };
   }
 }
